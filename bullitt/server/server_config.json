@@ -1,6 +1,6 @@
 {
 	"db_type"        : "mysql",
-	"db_conn"        : "mysqlconnector",
+	"db_conn"        : "",
 	"db_url"         : "localhost",
 	"db_name"        : "bullittdb",
 	"sql_user"       : "bull",
