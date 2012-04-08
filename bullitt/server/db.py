@@ -16,7 +16,7 @@ import uuid
 
 # Third-party libraries
 from sqlalchemy import create_engine, MetaData, Table, Column, String, \
-                       Integer, Boolean, and_
+                       Integer, Boolean, and_, not_
 from sqlalchemy.sql import select
 
 # Local imports
@@ -50,7 +50,7 @@ def get_hash(obj, hashalg='sha1'):
         return hashlib.__dict__[hashalg](file.read())
 
 
-def get_new_id():
+def get_id():
     '''
     Return a new UUID.
     '''
@@ -72,21 +72,23 @@ class ServerBiz(object):
         '''
         
         '''
+        self.db = BullittSQL()
         
     
     def check_client_perm(self, file_id, client_id):
         '''
-        Given a file and client ID, returns the permissions, None if NULL.
+        Return the permissions a client has on a file as a dict, None if NULL.
         '''
-        # 
-        pass
+        res = self.db.select_perm(file_id, client_id)
+        if res == None: return
+        return dict(zip(('read', 'write', 'owner'), res))
     
     
     def get_file_owner(self, file_id):
         '''
         For a given file, return the UUID of the owner client.
         '''
-        pass
+        return self.db.select_file(file_id, 'owner_id')
     
     
     def get_file_peers(self, file_id, client_id):
@@ -96,19 +98,31 @@ class ServerBiz(object):
         Does not return the result if the client does not have read or write
         permissions on the file.
         '''
-        # Check the client's permissions
-        
-        # If the client has read or write permissions, select all the peers
+        # Check the client's permissions by checking if it is in the list
+        # of users with a permission on it.
+        peers = self.db.select_file_peers(file_id)
+        try:
+            peers.remove(client_id)
+        except ValueError:
+            return
+        return peers
     
     
     def update_file(self, file_id, client_id, op, info):
         '''
         Generic update method for adding, deleting, or modifying a file.
         
-        file_id   -- UUID of file on which the operation is being performed
-        client_id -- UUID of client performing the operation on the file
-        op        -- 
-        info      -- Additional info needed for operation
+        :param file_id:
+        UUID of file on which the operation is being performed
+        
+        :param client_id:
+        UUID of client performing the operation on the file
+        
+        :param op:
+        
+         
+        :param info:
+        Additional info needed for operation
         '''
         pass
     
@@ -177,7 +191,6 @@ class BullittSQL(object):
     Data-level interaction with the database.
     '''
 
-
     def __init__(self):
         '''
         Constructor.
@@ -206,6 +219,13 @@ class BullittSQL(object):
         self.metadata.bind = self.engine
         
         # Define the tables for the database
+        self.user_table = Table('user_list', self.metadata,
+                                Column('user_id', String(36), primary_key=True,
+                                       nullable=False),
+                                #TODO: Determine data type for public keys
+                                #TODO: What other fields are necessary?
+#                                Column('pub_key', ?, nullable=False)
+                                )
         self.file_table = Table('file_list', self.metadata,
                                 Column('file_id', String(36), primary_key=True,
                                        nullable=False),
@@ -222,6 +242,9 @@ class BullittSQL(object):
                                 Column('write', Boolean, nullable=False),
                                 Column('owner', Boolean, nullable=False))
         
+        self.table_list = dict(user=self.user_table,
+                               file=self.file_table,
+                               perm=self.perm_table)
         self.create_tables()
     
     
@@ -239,6 +262,42 @@ class BullittSQL(object):
             self.perm_table.drop(self.engine)
         # Create the tables
         self.metadata.create_all()
+    
+    
+    def insert_user(self, client_id, pub_key):
+        '''
+        Insert the fields for a new client.
+        '''
+        uvals = dict(user_id=client_id,
+                     #TODO: Add other fields of table below
+                     #pub_key
+                     )
+        ures = self.user_table.insert().execute(**uvals)
+        return ures
+    
+    
+    def select_user(self, client_id, field=None):
+        '''
+        Retrieve the client entry corresponding to the given client_id.
+        '''
+        if field == None:
+            field = [self.user_table]
+        else:
+            field = [self.user_table.c.__dict__[field]]
+        result = self.conn.execute(select(field))
+        row = result.fetchone()
+        result.close()
+        keys = tuple([col.name for col in tuple(self.user_table.columns)])
+        return dict(zip(keys, row))
+    
+    
+    def delete_user(self, client_id):
+        ret1 = self.user_table.delete(self.user_table.c.user_id == client_id)
+        ret1 = ret1.execute()
+        
+        ret2 = self.perm_table.delete(self.perm_table.c.user_id == client_id)
+        ret2 = ret2.execute()
+        return ret1, ret2
     
     
     def insert_file(self, file_id, client_id, file_name, sha1, size):
@@ -287,12 +346,37 @@ class BullittSQL(object):
             field = [self.file_table.c.__dict__[field]]
         result = self.conn.execute(select(field))
         row = result.fetchone()
-        result.close
+        result.close()
         keys = tuple([col.name for col in tuple(self.file_table.columns)])
         return dict(zip(keys, row))
     
     
+    def select_file_peers(self, file_id):
+        '''
+        Return a list of client IDs that have permissions on the given file.
+        
+        If a client has been reduced to no permissions on the file (i.e. both
+        read and write fields are False), it will not be included in the list.
+        '''
+        s = select([self.perm_table.c.user_id],
+                   and_(self.perm_table.c.file_id == file_id,
+                        not_(and_(self.perm_table.c.write == False,
+                                  self.perm_table.c.read == False)
+                             )
+                        )
+                   )
+        result = self.conn.execute(s)
+        peers = []
+        for row in result:
+            peers.append(row)
+        result.close()
+        return peers
+    
+    
     def update_file(self, file_id, sha1, size):
+        '''
+        For an existing file record, update the hash and size.
+        '''
         try:
             # If we were passed a hash object, get the hex digest string
             sha1 = sha1.hexdigest()
@@ -305,17 +389,17 @@ class BullittSQL(object):
     
     def delete_file(self, file_id):
         '''
-        Delete the file entry matching the given ID.
+        Delete the file entry matching the given ID. Delete perm entries too.
         '''
         ret1 = self.file_table.delete(self.file_table.c.file_id == file_id)
         ret1 = ret1.execute()
         
         ret2 = self.perm_table.delete(self.perm_table.c.file_id == file_id)
-        ret2.execute()
+        ret2 = ret2.execute()
         return ret1, ret2
     
     
-    def insert_perm(self, file_id, client_id, read=0, write=0):
+    def insert_perm(self, file_id, client_id, read=False, write=False):
         '''
         Insert a new set of permissions for a client on a file. 
         '''
@@ -353,9 +437,13 @@ class BullittSQL(object):
     def update_perm(self, file_id, client_id, read=None, write=None):
         '''
         For an existing record, change the permissions for a client on a file.
+        
+        If both read and write are False, delete_perm() is called instead.
         '''
         if (read, write) == (None, None):
             raise ValueError('Parameter read or write must be specified.')
+        elif (read, write) == (False, False):
+            return self.delete_perm(file_id, client_id)
         
         pvals = dict()
         if read is not None:
