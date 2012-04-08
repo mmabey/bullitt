@@ -1,0 +1,9 @@
+{
+	"msg_type": "grant",
+	"params"  : [
+		"id"    : "2d250cb7-a05b-4710-95b4-872954bd52e8",
+		"client": "8fb04293-9685-42d6-b826-3d1784d41b83",
+		"read"  : null,
+		"write" : true
+	]
+}
