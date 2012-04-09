@@ -9,7 +9,7 @@ Created on Apr 4, 2012
 import subprocess
 import hashlib
 import uuid
-import Crypto #this isnt resolving in eclipse but works command line
+from Crypto import *
 
 def choochoo():
     #learned to use subprocess left it because sl is wonderful
@@ -29,6 +29,11 @@ def reassemble_slices():
 def decrypt_slice():
     '''
     Decrypt slice duhhh
+    '''
+
+def create_session_key():
+    '''
+    Create a session key
     '''
 
 if __name__ == '__main__':
