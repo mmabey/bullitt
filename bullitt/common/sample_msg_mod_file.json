@@ -1,0 +1,10 @@
+{
+	"msg_type": "mod_file",
+	"params"  : [
+		"id"       : "2d250cb7-a05b-4710-95b4-872954bd52e8",
+		"name"     : "test_file1.txt",
+		"bytes"    : 15,
+		"sha1"     : "b492e2448ad1304638e252ef52b2badd257464ac",
+		"prev_sha1": "87f493aa22e194f3593f9db2453c3e76bb4cf0ae"
+	]
+}
