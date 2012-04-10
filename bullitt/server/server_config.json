@@ -4,5 +4,6 @@
 	"db_url"         : "localhost",
 	"db_name"        : "bullittdb",
 	"sql_user"       : "bull",
-	"sql_pass"       : "bullpass"
+	"sql_pass"       : "bullpass",
+	"rabbit_server"  : "10.0.102.155"
 }
