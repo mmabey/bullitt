@@ -4,16 +4,23 @@
 Created on Apr 4, 2012
 
 @author: Justin
+
+INHERIT FROM RABBITOBJ
 '''
 
 import subprocess
 import hashlib
-import uuid
+import uuid #use str(uuid.uuid4())
 import os
 import math
-from Crypto import *
+import Crypto
 
-CONST_SLICE_SIZE = 180000 #180KB slice size
+'''
+=====
+pull from JSON file gen_config
+=====
+'''
+CONST_SLICE_SIZE = 184320 #180KB slice size
 
 def choochoo():
     #learned to use subprocess left it because sl is wonderful
@@ -53,6 +60,7 @@ def create_session_key():
     '''
     Create a session key
     '''
+    
 
 def send_slice():
     '''
