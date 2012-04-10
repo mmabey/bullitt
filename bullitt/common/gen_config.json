@@ -1,3 +1,4 @@
 {
-	"slice_size": 184320
+	"slice_size": 184320,
+	"op_queue"  : "client_operations"
 }
