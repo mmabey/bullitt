@@ -16,7 +16,7 @@ import uuid
 
 # Third-party libraries
 from sqlalchemy import create_engine, MetaData, Table, Column, String, \
-                       Integer, Boolean, and_, not_
+                       Integer, Boolean, PickleType, and_, not_
 from sqlalchemy.sql import select
 
 # Local imports
@@ -73,6 +73,27 @@ class ServerBiz(object):
         
         '''
         self.db = BullittSQL()
+    
+    
+    def client_exists(self, client_id):
+        '''
+        Return if the given client_id is in the system.
+        '''
+        return bool(self.db.select_user(client_id, 'user_id'))
+    
+    
+    def file_exists(self, file_id):
+        '''
+        Return if the file is already in the system.
+        '''
+        return bool(self.db.select_file(file_id, 'file_id'))
+    
+    
+    def perm_exists(self, file_id, client_id):
+        '''
+        Return if the client has a permission entry on the given file.
+        '''
+        return bool(self.check_client_perm(file_id, client_id))
         
     
     def check_client_perm(self, file_id, client_id):
@@ -84,14 +105,25 @@ class ServerBiz(object):
         return dict(zip(('read', 'write', 'owner'), res))
     
     
-    def get_file_owner(self, file_id):
+    def can_update(self, file_id, client_id):
+        '''
+        Shortcut to check for write or own permissions
+        '''
+        ret = self.check_client_perm(file_id, client_id)
+        return ret['write'] or ret['owner']
+    
+    
+    def get_file_owner(self, file_id, client_id=None):
         '''
         For a given file, return the UUID of the owner client.
         '''
-        return self.db.select_file(file_id, 'owner_id')
+        owner_id = self.db.select_file(file_id, 'owner_id')
+        if client_id == None:
+            return owner_id
+        return owner_id == client_id
     
     
-    def get_file_peers(self, file_id, client_id):
+    def get_file_peers(self, file_id, client_id, sha1=None):
         '''
         For a given file, return the list of clients with a copy of it.
         
@@ -100,7 +132,7 @@ class ServerBiz(object):
         '''
         # Check the client's permissions by checking if it is in the list
         # of users with a permission on it.
-        peers = self.db.select_file_peers(file_id)
+        peers = self.db.select_file_peers(file_id, sha1)
         try:
             peers.remove(client_id)
         except ValueError:
@@ -108,23 +140,11 @@ class ServerBiz(object):
         return peers
     
     
-    def update_file(self, file_id, client_id, op, info):
+    def get_file_version(self, file_id):
         '''
-        Generic update method for adding, deleting, or modifying a file.
-        
-        :param file_id:
-        UUID of file on which the operation is being performed
-        
-        :param client_id:
-        UUID of client performing the operation on the file
-        
-        :param op:
-        
-         
-        :param info:
-        Additional info needed for operation
+        Return the current SHA1 hash of the file.
         '''
-        pass
+        return self.db.select_file(file_id, 'sha1')
     
     
     def publish_update(self, file_id, checksum):
@@ -134,55 +154,139 @@ class ServerBiz(object):
         pass
     
     
-    def _add_file(self, client_id,):
+    def add_file(self, params, client_id):
         '''
-        Specialized version of modify operation.
+        Add a file to the system.  Set the client as the owner.
+        '''
+        file_id = params['id']
+        file_name = params['name']
+        size = params['bytes']
+        sha1 = params['sha1']
+        self.db.insert_file(file_id, client_id, file_name, sha1, size)
+    
+    
+    def mod_file(self, params, client_id):
+        '''
+        Update the file entry with current information.
         
-        Inserts a new entry in the database for the file specified
+        The operation is not executed if the client does not have write or own
+        permissions on the file or if the previous hash given does not match
+        the current hash in the database.
         '''
-        pass
+        file_id = params['id']
+        sha1 = params['sha1']
+        size = params['bytes']
+        # Check that the SHA1 matches the current version.
+        if self.can_update(file_id, client_id) \
+                and params['prev_sha1'] == self.get_file_version(file_id):
+            self.db.update_file(file_id=file_id,
+                                sha1=sha1,
+                                size=size)
     
     
-    def _del_file(self):
+    def del_file(self, params, client_id):
         '''
+        Delete the file entry if the client is the owner.
         '''
-        pass
+        file_id = params['id']
+        sha1 = params['sha1']
+        if self.get_file_owner(file_id, client_id) and \
+                self.get_file_version(file_id) == sha1:
+            self.db.delete_file(file_id)
+            #TODO: Should the index server notify clients?
     
     
-    def _mod_file(self):
+    def grant(self, params, client_id):
         '''
-        Update the file index with the newest version of the file.
+        Grant a client more rights on a file.  Only read/write supported.
         
+        Only the owner of the file can successfully grant other clients rights
+        on that file.  If the grantee does not already have permissions on the
+        file, a new permissions entry is created.
+        '''
+        file_id = params['id']
+        grantee = params['client']
+        read = params['read']
+        if read == False: read = None
         
+        write = params['write']
+        if write == False: write = None
+        
+        if self.get_file_owner(file_id, client_id) and \
+                self.client_exists(client_id):
+            params2 = dict(file_id=file_id,
+                           client_id=grantee,
+                           read=read,
+                           write=write)
+            if self.perm_exists(file_id, grantee):
+                func = self.db.update_perm
+            else:
+                params2['sha1'] = self.get_file_version(file_id)
+                func = self.db.insert_perm
+            try:
+                func(**params2)
+            except ValueError:
+                # Granter specified (None, None) permissions. That's okay.
+                pass
+    
+    
+    def revoke(self, params, client_id):
+        '''
+        Remove rights from a client on a file.  Only read/write supported.
+        '''
+        file_id = params['id']
+        grantee = params['client']
+        read = params['read']
+        if read == True: read = None
+        
+        write = params['write']
+        if write == True: write = None
+        
+        if self.get_file_owner(file_id, client_id) and \
+                self.client_exists(client_id) and self.perm_exists(file_id,
+                                                                   grantee):
+            try:
+                self.db.update_perm(file_id=file_id, client_id=grantee,
+                                    read=read, write=write)
+            except ValueError:
+                # Granter specified (None, None) permissions. That's okay.
+                pass
+    
+    
+    def version_downloaded(self, params, client_id):
+        '''
+        Store the SHA1 of the file's version that the client has.
+        '''
+        file_id = params['id']
+        sha1 = params['sha1']
+        self.db.update_user_version(file_id, client_id, sha1)
+    
+    
+    def add_client(self):
+        '''
         '''
         pass
     
     
-    def update_client(self):
+    def view_clients(self):
+        '''
+        Return a tuple of tuples where 
+        '''
+    
+    
+    def del_client(self):
         '''
         '''
         pass
     
     
-    def _add_client(self):
+    def client_lookup(self, client_id=None, ipaddr=None, pub_key=None):
         '''
+        Return all info on a client based on its ID, IP address, or public key.
+        
+        Info is returned as a dictionary where the column names are the keys.
         '''
-        pass
-    
-    
-    def _del_client(self):
-        '''
-        '''
-        pass
-    
-    
-    def _mod_client_perm(self):
-        '''
-        '''
-        pass
-    
-    
-    #def
+        return self.db.select_user(client_id, ipaddr, pub_key)
 
 
 
@@ -220,12 +324,11 @@ class BullittSQL(object):
         
         # Define the tables for the database
         self.user_table = Table('user_list', self.metadata,
+                                #TODO: Any other fields are necessary?
                                 Column('user_id', String(36), primary_key=True,
                                        nullable=False),
-                                #TODO: Determine data type for public keys
-                                #TODO: What other fields are necessary?
-#                                Column('pub_key', ?, nullable=False)
-                                )
+                                Column('pub_key', PickleType, nullable=False),
+                                Column('ipaddr', String(15), nullable=False))#TODO: Integrate this -> Add other necessary code
         self.file_table = Table('file_list', self.metadata,
                                 Column('file_id', String(36), primary_key=True,
                                        nullable=False),
@@ -233,11 +336,14 @@ class BullittSQL(object):
                                        nullable=False),
                                 Column('owner_id', String(36), nullable=False),
                                 Column('sha1', String(40), nullable=False),
+                                Column('prev_sha1', String(40), nullable=True),
                                 Column('size', Integer, nullable=False))
         self.perm_table = Table('permissions', self.metadata,
-                                Column('file_id', String(36), primary_key=True),
-                                Column('user_id', String(36), primary_key=True),
-#                                Column('user_key', String(), nullable=False),
+                                Column('file_id', String(36), primary_key=True,
+                                       nullable=False),
+                                Column('user_id', String(36), primary_key=True,
+                                       nullable=False),
+                                Column('sha1', String(40), nullable=False),
                                 Column('read', Boolean, nullable=False),
                                 Column('write', Boolean, nullable=False),
                                 Column('owner', Boolean, nullable=False))
@@ -270,28 +376,58 @@ class BullittSQL(object):
         '''
         uvals = dict(user_id=client_id,
                      #TODO: Add other fields of table below
-                     #pub_key
-                     )
+                     pub_key=pub_key)
         ures = self.user_table.insert().execute(**uvals)
         return ures
     
     
-    def select_user(self, client_id, field=None):
+    def select_user(self, client_id=None, ipaddr=None, pub_key=None,
+                    field=None):
         '''
-        Retrieve the client entry corresponding to the given client_id.
+        Retrieve the client entry corresponding to the given information.
+        
+        Either client_id, ipaddr, or pub_key must be specified to successfully
+        select the user, or else None will be returned.  To retrieve the entire
+        entry row, field should remain None.  To retrieve a specific column, 
+        give it as field.
+        
+        Returns a dictionary where the column names are the keys.
         '''
+        where = None
+        if client_id is not None:
+            where = self.user_table.c.user_id == client_id
+        elif ipaddr is not None:
+            where = self.user_table.c.ipaddr == ipaddr
+        elif pub_key is not None:
+            where = self.user_table.c.pub_key == pub_key
+        
+        if where == None: return
+        
         if field == None:
             field = [self.user_table]
         else:
             field = [self.user_table.c.__dict__[field]]
-        result = self.conn.execute(select(field))
+        
+        result = self.conn.execute(select(field, where))
         row = result.fetchone()
         result.close()
         keys = tuple([col.name for col in tuple(self.user_table.columns)])
         return dict(zip(keys, row))
     
     
+    def update_user_version(self, file_id, client_id, sha1):
+        '''
+        '''
+        ret1 = self.perm_table.update(and_(
+                                        self.perm_table.c.file_id == file_id,
+                                        self.perm_table.c.user_id == client_id))
+        return ret1.execute(sha1=sha1)
+    
+    
     def delete_user(self, client_id):
+        '''
+        Delete the user entry matching the given ID. Delete perm entries too.
+        '''
         ret1 = self.user_table.delete(self.user_table.c.user_id == client_id)
         ret1 = ret1.execute()
         
@@ -316,6 +452,7 @@ class BullittSQL(object):
                      file_name=file_name,
                      owner_id=client_id,
                      sha1=sha1,
+                     prev_sha1=None,
                      size=size,
                      )
         pvals = dict(file_id=file_id,
@@ -344,20 +481,23 @@ class BullittSQL(object):
             field = [self.file_table]
         else:
             field = [self.file_table.c.__dict__[field]]
-        result = self.conn.execute(select(field))
+        s = select(field, self.file_table.c.file_id == file_id)
+        result = self.conn.execute(s)
         row = result.fetchone()
         result.close()
         keys = tuple([col.name for col in tuple(self.file_table.columns)])
         return dict(zip(keys, row))
     
     
-    def select_file_peers(self, file_id):
+    def select_file_peers(self, file_id, sha1=None):
         '''
         Return a list of client IDs that have permissions on the given file.
         
         If a client has been reduced to no permissions on the file (i.e. both
         read and write fields are False), it will not be included in the list.
         '''
+        #TODO: Select the pub_key field from the user_list table, too
+        #TODO: Fetch only the peers with the specified SHA1 hash if specified, otherwise just get the latest
         s = select([self.perm_table.c.user_id],
                    and_(self.perm_table.c.file_id == file_id,
                         not_(and_(self.perm_table.c.write == False,
@@ -370,19 +510,24 @@ class BullittSQL(object):
         for row in result:
             peers.append(row)
         result.close()
+        #TODO: Make sure the peers' public keys are being returned here
         return peers
     
     
     def update_file(self, file_id, sha1, size):
         '''
         For an existing file record, update the hash and size.
+        
+        Handles saving the previous SHA1 hash and setting as the prev_sha1
+        for the updated entry.
         '''
         try:
             # If we were passed a hash object, get the hex digest string
             sha1 = sha1.hexdigest()
         except AttributeError:
             pass
-        fvals = dict(sha1=sha1, size=size)
+        prev_sha1 = self.select_file(file_id, 'sha1')
+        fvals = dict(sha1=sha1, prev_sha1=prev_sha1, size=size)
         ret1 = self.file_table.update(self.file_table.c.file_id == str(file_id))
         return ret1.execute(**fvals)
     
@@ -399,18 +544,22 @@ class BullittSQL(object):
         return ret1, ret2
     
     
-    def insert_perm(self, file_id, client_id, read=False, write=False):
+    def insert_perm(self, file_id, client_id, read=False, write=False,
+                    sha1=None):
         '''
         Insert a new set of permissions for a client on a file. 
         '''
         if (read, write) == (False, False):
             raise ValueError('Parameter read or write must be True or 1.')
         
+        #TODO: Check to see if the client_id value is valid first
+        
         pvals = dict(file_id=file_id,
                      user_id=client_id,
                      read=bool(read),
                      write=bool(write),
                      owner=False,
+                     sha1=sha1
                      )
         return self.perm_table.insert().execute(**pvals)
     

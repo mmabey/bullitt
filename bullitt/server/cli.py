@@ -9,15 +9,48 @@ Created on Apr 2, 2012
 # Third-party libraries
 
 # Local imports
+from index import Server
 
-# Constants
+# Constants/Globals
+SERVER = Server()
 
 
 def print_main_menu():
     '''
     Prints main CLI menu for the server.
     '''
-    pass
+    print
+    print "Options:"
+    print "--------"
+    print
+    print "  1. View list of clients"
+    print "  2. Add a client"
+    print "  3. Delete a client"
+    print "  Q to exit"
+    print
+
+
+def view_clients():
+    print "Clients: ..."
+
+
+def add_client():
+    err = 'boo!'
+    while err != []:
+        uid = raw_input("Enter the client's UUID > ").strip()
+        ipaddr = raw_input("\nEnter the client's IP address > ").strip()
+        key = raw_input("\nEnter the path to the client's public key > ").strip()
+        
+        if len(uid) != 36 or (uid[8], uid[13], uid[18], uid[23]) != \
+                ('-', '-', '-', '-') or not uid.replace('-', '').isalnum():
+            err.append('UUID of incorrect length/format.')
+        if len(ipaddr) < 7 or ipaddr.count('.') != 3 or not \
+                ipaddr.replace('.', '').isnum():
+            err.append('IP address of incorrect length/format.')
+
+
+def del_client():
+    print "delete delete"
 
 
 def main():
@@ -26,16 +59,20 @@ def main():
     
     while True:
         print_main_menu()
-        res = raw_input(">> ")
-        if res.lower()[0] == 'q':
+        try:
+            res = raw_input(" > ")
+        except (EOFError, KeyboardInterrupt):
+            break
+        print
+        if len(res) and res.lower()[0] == 'q':
             break
         elif res == '1':
-            pass
+            view_clients()
         elif res == '2':
-            pass
+            add_client()
         elif res == '3':
-            pass
+            del_client()
 
 
 if __name__ == '__main__':
-    pass
+    main()
