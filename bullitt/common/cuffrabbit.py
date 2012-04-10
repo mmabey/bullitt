@@ -78,7 +78,9 @@ class RabbitObj(object):
         self.binding_key = None
 
 
-    def init_connection(self, callback, queue_name='', exchange='', exchange_type='topic', routing_key="#", blocking=False):
+    def init_connection(self, callback, queue_name='', exchange='',
+                        exchange_type='topic', routing_key="#", blocking=False,
+                        user_id=None):
         '''
         Handles all connection, channel, etc. issues involved in fully 
         connecting to the RabbitMQ server. The function 'callback' is stored
@@ -88,6 +90,8 @@ class RabbitObj(object):
         '''
         self.exchange = str(exchange)
         self.init_callback = callback
+        if user_id != None:
+            self.user_id = str(user_id)
 
         if exchange_type not in EXCHANGE_TYPES:
             raise ValueError("Exchange type must be one of: %s" % str(EXCHANGE_TYPES))
@@ -179,9 +183,14 @@ class RabbitObj(object):
         #if INFO: print "\n" + self._debug_prefix + "Sending message on %s : %s : %s" % (self.exchange, self.queue_name, routing_key)
         # TODO: In the following, create a means of catching "unroutable" messages (necessary because the 'mandatory'
         # flag is set)
-        self.channel.basic_publish(exchange=self.exchange, routing_key=routing_key, body=body, mandatory=True,
-                                   properties=pika.BasicProperties(delivery_mode=2, # Persistent messages
-                                                                   )
+        props = pika.BasicProperties(delivery_mode=2, # Persistent messages
+                                     user_id=self.user_id,
+                                     )
+        self.channel.basic_publish(exchange=self.exchange,
+                                   routing_key=routing_key,
+                                   body=body,
+                                   mandatory=True,
+                                   properties=props,
                                    )
 
 
