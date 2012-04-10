@@ -1,0 +1,6 @@
+{
+	"msg_type": "get_peers",
+	"params"  : [
+		"id": "2d250cb7-a05b-4710-95b4-872954bd52e8"
+	]
+}
