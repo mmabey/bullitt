@@ -1,6 +1,6 @@
-#!/usr/bin/bash
+#!/bin/bash
 
-sudo apt-get install python, python-pycrptopp, sl
+sudo apt-get install python python-pip python-pycryptopp sl
 sudo pip install pika
 sl
 echo "CHOO CHOO!!"
