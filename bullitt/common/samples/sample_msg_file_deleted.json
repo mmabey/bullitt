@@ -1,5 +1,5 @@
 {
-	"msg_type": "del_file",
+	"msg_type": "file_deleted",
 	"params"  : {
 		"id"  : "2d250cb7-a05b-4710-95b4-872954bd52e8",
 		"sha1": "b492e2448ad1304638e252ef52b2badd257464ac"
