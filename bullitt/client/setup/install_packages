@@ -1,0 +1,4 @@
+#!/usr/bin/bash
+
+sudo apt-get install python, python-pycrptopp
+sudo easy_install pika
