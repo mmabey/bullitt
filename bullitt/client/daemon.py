@@ -7,6 +7,8 @@ Created on Apr 4, 2012
 
 '''
 
+#TODO generate public keys and client uuids and store info in json
+
 # Library imports
 import threading
 import subprocess
@@ -26,12 +28,6 @@ from bullitt.common.cuffrabbit import RabbitObj
 
 class Client(RabbitObj):
 
-    '''
-    =====
-    pull from JSON file gen_config
-    =====
-    '''
-
     def __init__(self, host, port, virtual_host, credentials, channel_max, frame_max, heartbeat):
         #parent constructor
         #TODO Uncomment for deploy
@@ -43,77 +39,111 @@ class Client(RabbitObj):
         self.CONST_SLICE_SIZE = json_data["slice_size"]
 
     def choochoo(self):
-        #learned to use subprocess left it because sl is wonderful
-        #probably should remove since we're no longer using subprocess
+        '''
+        Pretty much the best method ever
+        '''
         subprocess.call("sl")
     
-    def slice_file(self, file, slice_number):
+    def slice_file(self, filename, slice_number):
         '''
-        Calls dd to split a file into 180KB blocks
-        The slice argument for this slice size comes from
+        Grabs the requested slice of the file @ filename
+        Slice size is defined in ../common/gen_config.json
+        But is currently using 180KB slices
+        
+        The 180KB slice size come from the argment
         http://www.unitethecows.com/p2p-general-discussion/30807-rodi-anonymous-p2p.html#post203703
         
-        If successful returns the slice of the file as an object
+        If successful returns the file_slice of the file as an object
         '''
         try:
-            file_size = os.path.getsize(file)
+            file_size = os.path.getsize(filename)
             start_byte = self.CONST_SLICE_SIZE * slice_number
             #end_byte = start_byte + self.CONST_SLICE_SIZE - 1 #not needed
     
-            if start_byte < file_size and slice_number >= 0: #check that the slice number makes sense
-                #subprocess.call("dd if={0} of={0}.slice{1} ibs={2} skip={1} count=1"\
-                #                .format(file, slice_number, self.CONST_SLICE_SIZE))
+            if start_byte < file_size and slice_number >= 0: #check that the file_slice number makes sense
+                #subprocess.call("dd if={0} of={0}.file_slice{1} ibs={2} skip={1} count=1"\
+                #                .format(filename, slice_number, self.CONST_SLICE_SIZE))
                 #
                 #the following code is the equivalent of the command above
-                fhandle = open(file, 'rb')
+                fhandle = open(filename, 'rb')
                 fhandle.seek(start_byte) #move to correct byte
-                slice = fhandle.read(self.CONST_SLICE_SIZE) #grab the slice
+                file_slice = fhandle.read(self.CONST_SLICE_SIZE) #grab the file_slice
                 #these two lines would complete the of= part of dd
-                #ofile = open(file + ".slice" + str(slice_number), 'wb') 
-                #ofile.write(slice)
+                #ofile = open(filename + ".file_slice" + str(slice_number), 'wb') 
+                #ofile.write(file_slice)
                 
                 #cleanup
-                fhandle.close()
                 #ofile.close()
+                fhandle.close()
                 
-                return slice
+                return file_slice
             else:
-                print "Slice is outside of file!!"
+                print "Slice is outside of file!"
         except OSError:
             print "File not found or other OSError"
     
-    def reassemble_slices(self, slice_list, outfile):
+    def reassemble_slices(self, slice_list, outfilename):
         '''
         Decrypt slices and put them back together
         '''
-        outhandle = open(outfile, "wb")
-        for slice in slice_list:
-            outhandle.write(slice)
+        outhandle = open(outfilename, "wb")
+        for file_slice in slice_list:
+            outhandle.write(file_slice)
     
+        outhandle.close()
+
     def decrypt_slice(self):
         '''
         Decrypt slice duhhh
         '''
+        #Use session key to decrypt via Crypto
+        #This may be changed to decrypt the entire JSON message instead
+        #In which case this will be called from the receive method
+        #instead of the reassembly 
 
     def create_session_key(self):
         '''
         Create a session key
         '''
-    
+        #TODO grab a crypto random number from Crypto
 
     def send_slice(self):
         '''
         Send slice to a vm
         '''
-    
+        #TODO this will probably send a message via rabbitmq
+        
+    def send_to_server(self, filename, prev_sha1=None, file_uuid=None):
+        '''
+        Sends a file_handle to the server
+        Including a previous hash and uuid implies an update
+        '''
+        
+        #read data in as binary
+        file_handle = open(filename, "rb")
+        filedata = file_handle.read()
+        file_handle.close()
+        
+        #grab file size
+        file_size = os.path.getsize(filename)
+        
+        #generate sha1
+        sha1_hash = hashlib.sha1(filedata).hexdigest()
+        
+        if file_uuid == None:
+            file_uuid = uuid.uuid4() #create a uuid for new file_handle
+        
+        #TODO package and send to server
+        
 if __name__ == '__main__':
     '''
     Purely a testing method - should be removed before deploying
     '''
     client = Client(None, None, None, None, None, None, None)
-    num_slices = int(math.ceil(os.path.getsize("C:/Users/Justin/Desktop/trying/Paper-5(1).pdf") / float(client.CONST_SLICE_SIZE)))
-    slices = list()
-    for x in range(num_slices):
-        slices.insert(x, client.slice_file("C:/Users/Justin/Desktop/trying/Paper-5(1).pdf", x))
-    client.reassemble_slices(slices, "C:/Users/Justin/Desktop/trying/copy.pdf")
+    client.send_to_server("C:/Users/Justin/Desktop/trying/Paper-5(1).pdf")
+    #num_slices = int(math.ceil(os.path.getsize("C:/Users/Justin/Desktop/trying/Paper-5(1).pdf") / float(client.CONST_SLICE_SIZE)))
+    #slices = list()
+    #for x in range(num_slices):
+    #    slices.insert(x, client.slice_file("C:/Users/Justin/Desktop/trying/Paper-5(1).pdf", x))
+    #client.reassemble_slices(slices, "C:/Users/Justin/Desktop/trying/copy.pdf")
     pass
