@@ -7,7 +7,7 @@ Created on Apr 4, 2012
 
 '''
 
-#TODO generate public keys and client uuids and store info in json
+#TODO generate public keys and client uuids and store info in json and IP
 
 # Library imports
 import threading
@@ -134,6 +134,13 @@ class Client(RabbitObj):
             file_uuid = uuid.uuid4() #create a uuid for new file_handle
         
         #TODO package and send to server
+        
+    class MessageTask(threading.Thread):
+        def run(self):
+            '''
+            This method will handle the sending/receiving of messages
+            '''
+            pass
         
 if __name__ == '__main__':
     '''
