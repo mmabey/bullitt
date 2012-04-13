@@ -466,8 +466,9 @@ class _Receiver(RabbitObj, threading.Thread):
             handle[num] = slice
             
             if len(handle) == self.parent.requested_file_slice_count:
-                parent.reassemble_slices() #what did I do wrong
-            
+                #TODO: fix the id in the next line - should be filename
+                self.parent.reassemble_slices(handle, id)
+                del self.parent.received_in_progress[id]
         else:
             print "I have no idea what I'm doing (unexpect msg error)"
         
