@@ -150,7 +150,8 @@ class ServerBiz(object):
         return owner_id == client_id
     
     
-    def get_file_peers(self, file_id, client_id, sha1=None, get_pub_key=True):
+    def get_file_peers(self, file_id, client_id, sha1=None, get_pub_key=True,
+                       get_file_size=False):
         '''
         For a given file, return the list of clients with a copy of it.
         
@@ -164,6 +165,8 @@ class ServerBiz(object):
             peers.pop(client_id)
         except KeyError:
             return
+        if get_file_size:
+            return peers, self.db.select_file(file_id, 'size')['size']
         return peers
     
     
@@ -587,7 +590,7 @@ class BullittSQL(object):
         result = self.conn.execute(s)
         peers = []
         for row in result:
-            peers.append(dict(zip(fields, row)))
+            peers.append(dict(zip(keys, row)))
         result.close()
         return peers
     

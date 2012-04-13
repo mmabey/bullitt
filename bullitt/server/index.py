@@ -7,6 +7,7 @@ Created on Apr 5, 2012
 
 # Library imports
 import json
+from math import ceil
 import os
 import Queue
 import threading
@@ -53,6 +54,7 @@ class Server(object):
             genconfig = json.load(fin)
         host = genconfig['rabbit_server']
         queue = genconfig['op_queue']
+        self.slice_size = genconfig['slice_size']
         
         # Operation parameters
         self.ops = dict(add_file=('id', 'name', 'bytes', 'sha1'),
@@ -72,7 +74,7 @@ class Server(object):
         
         # Create Listener object
         self.signal_queue = Queue.Queue()
-        self.listener = _Listener(self, host, queue)
+        self.listener = _Listener(self, host, queue, self.slice_size)
         self.listener.start()
     
     
@@ -112,7 +114,7 @@ class _Listener(RabbitObj, threading.Thread):
     '''
     '''
     
-    def __init__(self, parent, host, queue):
+    def __init__(self, parent, host, queue, slice_size):
         '''
         '''
         # Initialize thread
@@ -124,6 +126,7 @@ class _Listener(RabbitObj, threading.Thread):
         self._queue_name = queue
         self.parent = parent
         self.biz = parent.biz
+        self.slice_size = slice_size
     
     
     def run(self):
@@ -196,7 +199,10 @@ class _Listener(RabbitObj, threading.Thread):
     def _client_lookup(self, params, client_id):
         '''
         '''
-        raise NotImplementedError#TODO: 
+        ret = self.biz.get_clients()
+        body = dict(msg_type='client_list',
+                    params=dict(clients=ret))
+        self.send_message(body=json.dumps(body), routing_key=client_id)
     
     
     def _del_file(self, params, client_id):
@@ -227,7 +233,9 @@ class _Listener(RabbitObj, threading.Thread):
         sha1 = None
         if 'sha1' in params: sha1 = params['sha1']
         ret = self.biz.get_file_peers(file_id, client_id, sha1)
-        self.send_message(body=json.dumps(ret), routing_key=client_id)
+        body = dict(msg_type='peers_list',
+                    params=dict(peers=ret))
+        self.send_message(body=json.dumps(body), routing_key=client_id)
     
     
     def _list_files(self, params, client_id):
@@ -235,29 +243,52 @@ class _Listener(RabbitObj, threading.Thread):
         Return the list of files to which the client has access.
         '''
         ret = self.biz.get_client_files(client_id)
-        self.send_message(body=json.dumps(ret), routing_key=client_id)
+        body = dict(msg_type="files_list",
+                    params=dict(files=ret))
+        self.send_message(body=json.dumps(body), routing_key=client_id)
     
     
     def _mod_file(self, params, client_id):
         '''
         '''
-        raise NotImplementedError#TODO: 
+        ret = self.biz.mod_file(params, client_id)
+        body = dict(msg_type='file_modded',
+                    params=dict(ret_val=ret))
+        self.send_message(body=json.dumps(body), routing_key=client_id)
     
     
     def _query_rights(self, params, client_id):
         '''
         '''
-        ret = self.biz.get_file_owner(params['id'])
-        if client_id == ret:
-            # Client is file owner
-            pass
-        raise NotImplementedError#TODO: 
+        file_id = params['id']
+        ret = self.biz.check_client_perm(file_id, client_id)
+        body = dict(msg_type='rights_list',
+                    params=dict(file_id=file_id,
+                                rights=ret))
+        self.send_message(body=json.dumps(body), routing_key=client_id)
     
     
     def _request_file(self, params, client_id):
         '''
         '''
-        raise NotImplementedError#TODO: 
+        file_id = params['id']
+        sha1 = params['sha1']
+        peers, size = self.biz.get_file_peers(file_id, client_id, sha1,
+                                        get_pub_key=False, get_file_size=True)
+        body = dict(msg_type='slice_assign',
+                    params=dict(file_id=file_id,
+                                sha1=sha1))
+        num_slices = int(ceil(float(size) / self.slice_size))
+        slices_per = int(ceil(float(num_slices) / len(peers)))
+        slices_sent = 0
+        
+        for p in peers:
+            for n in xrange(slices_per):
+                body['params']['slice_num'] = slices_sent
+                self.send_message(body=json.dumps(body),
+                                  routing_key=p['user_id'])
+                slices_sent += 1
+                if slices_sent >= num_slices: break
 
 
 
