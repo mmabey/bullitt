@@ -1,0 +1,6 @@
+{
+	"uuid": "a8abb6b0-5618-464a-baab-0486f58d3090",
+	"ip": "10.0.102.153",
+	"pri_key": "/home/vlab/keypair/client2.pem",
+	"pub_ley": "/home/vlab/keypair/client2_public.pem"
+}

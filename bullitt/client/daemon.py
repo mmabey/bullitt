@@ -7,7 +7,7 @@ Created on Apr 4, 2012
 
 '''
 
-#TODO generate public keys and client uuids and store info in json and IP
+#TODO: generate public keys and client uuids and store info in json and IP
 
 # Library imports
 import threading
@@ -30,7 +30,7 @@ class Client(RabbitObj):
 
     def __init__(self, host, port, virtual_host, credentials, channel_max, frame_max, heartbeat):
         #parent constructor
-        #TODO Uncomment for deploy
+        #TODO: Uncomment for deploy
         #RabbitObj.__init__(self, host, port, virtual_host, credentials, channel_max, frame_max, heartbeat)
         
         #read slice size from our config json
@@ -105,13 +105,13 @@ class Client(RabbitObj):
         '''
         Create a session key
         '''
-        #TODO grab a crypto random number from Crypto
+        #TODO: grab a crypto random number from Crypto
 
     def send_slice(self):
         '''
         Send slice to a vm
         '''
-        #TODO this will probably send a message via rabbitmq
+        #TODO: this will probably send a message via rabbitmq
         
     def send_to_server(self, filename, prev_sha1=None, file_uuid=None):
         '''
@@ -133,7 +133,7 @@ class Client(RabbitObj):
         if file_uuid == None:
             file_uuid = uuid.uuid4() #create a uuid for new file_handle
         
-        #TODO package and send to server
+        #TODO: package and send to server
         
     class MessageTask(threading.Thread):
         def run(self):
@@ -148,6 +148,7 @@ if __name__ == '__main__':
     '''
     client = Client(None, None, None, None, None, None, None)
     client.send_to_server("C:/Users/Justin/Desktop/trying/Paper-5(1).pdf")
+    
     #num_slices = int(math.ceil(os.path.getsize("C:/Users/Justin/Desktop/trying/Paper-5(1).pdf") / float(client.CONST_SLICE_SIZE)))
     #slices = list()
     #for x in range(num_slices):
