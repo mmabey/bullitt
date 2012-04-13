@@ -30,16 +30,20 @@ class Client():
 
     def __init__(self):
         #read slice size from our config json
-        p = os.path.dirname(os.path.realpath(__file__))
-        p = os.path.realpath(os.path.join(p, '..', 'common'))
-        with open(os.path.join(p, 'gen_config.json')) as fin:
+        client_dir = os.path.dirname(os.path.realpath(__file__))
+        common_dir = os.path.realpath(os.path.join(client_dir, '..', 'common'))
+        with open(os.path.join(common_dir, 'gen_config.json')) as fin:
             json_data = json.load(fin)
         self.CONST_SLICE_SIZE = json_data["slice_size"]
         self.rabbit_server = str(json_data['rabbit_server'])
-
-        #print 'rabbit_server: "%s" is a %s' % (self.rabbit_server,
-        #                                       type(self.rabbit_server))
-        #print '%r' % json_data
+        self.server_queue = json_data['op_queue']
+        
+        # Keep session keys in this
+        self.session_keys = {}
+        
+        # Use this for long-term storage of file info.
+        # Keep a structure of {file_id: [name, size, sha1]}
+        self.file_info = {}
 
         #initialize queues
         self.out_queue = Queue.Queue()
@@ -108,13 +112,14 @@ class Client():
     
         outhandle.close()
 
-    def encrypt_data(self, data, pub_key):
+    def encrypt_data(self, data, key):
         '''
-        Encrypt some data using a given pubkey
+        Encrypt some data using a given key
         '''
         #TODO: write me
+        return data
         
-    def decrypt_slice(self):
+    def decrypt_slice(self, other_party):
         '''
         Decrypt slice with private key
         '''
@@ -124,12 +129,22 @@ class Client():
         #instead of the reassembly 
 
         #TODO: write it
+        try:
+            key = self.session_keys[other_party]
+        except KeyError:
+            self.create_session_key(other_party)
+            key = self.session_keys[other_party]
+        
+        #TODO: Use key to decrypt message
 
-    def create_session_key(self):
+
+    def create_session_key(self, other_party):
         '''
         Create a session key
         '''
         #TODO: grab a crypto random number from Crypto
+        self.session_keys[other_party] = None
+    
 
     def send_slice(self, slice, file_uuid, slice_num):
         '''
@@ -188,7 +203,10 @@ class Client():
         params.pop('self')
         for key in params:
             if key is None: params.pop(key)
-        self.out_queue.put(json.dumps(dict(msg_type=msg_type, params=params)))
+        body = self.encrypt_data(json.dumps(dict(msg_type=msg_type,
+                                                 params=params)),
+                                 self.session_keys['server'])
+        self.out_queue.put((self.server_queue, body))
     
         
     def add_or_mod_file(self, filename, prev_sha1=None, file_uuid=None):
@@ -196,47 +214,44 @@ class Client():
         Sends a file_handle to the server
         Including a previous hash and uuid implies an update
         '''
+        # Read data in as binary and generate SHA1
+        with open(filename, "rb") as fin:
+            sha1_hash = hashlib.sha1(fin.read()).hexdigest()
         
-        #read data in as binary
-        file_handle = open(filename, "rb")
-        filedata = file_handle.read()
-        file_handle.close()
-        
-        #grab file size
+        # Grab file size
         file_size = os.path.getsize(filename)
         
-        #generate sha1
-        sha1_hash = hashlib.sha1(filedata).hexdigest()
-        
-        #if this is a new file
+        # If this is a new file, create a UUID for new file_handle
         if file_uuid == None:
-            file_uuid = uuid.uuid4() #create a uuid for new file_handle
+            file_uuid = str(uuid.uuid4())
         
-        file_uuid = str(file_uuid) #covert to string
-        
-        message = {
-                   "params":
-                            {"id":file_uuid,
-                             "name":filename,
-                             "bytes":file_size,
-                             "sha1":sha1_hash,
-                            }
-                   }
-        
-        if prev_sha1 == None:
-            #adding file to system
-            message["msg_type"] = "add_file" 
-        else:
-            #modifying file in system
-            message["msg_type"] = "mod_file" 
-            message["params"]["prev_sha1"] = prev_sha1
-            
-        json_object = json.dumps(message)
-        print json_object #debug
-        
-        #TODO: encrypt object
-        self.out_queue.put(json_object)
-        
+        msg_type = prev_sha1 is not None and 'mod_file' or 'add_file'
+        self.send_op_msg(msg_type, id=file_uuid, name=filename,
+                         bytes=file_size, sha1=sha1_hash, prev_sha1=prev_sha1)
+        #message = {
+        #           "params":
+        #                    {"id":file_uuid,
+        #                     "name":filename,
+        #                     "bytes":file_size,
+        #                     "sha1":sha1_hash,
+        #                    }
+        #           }
+        #
+        #if prev_sha1 == None:
+        #    #adding file to system
+        #    message["msg_type"] = "add_file" 
+        #else:
+        #    #modifying file in system
+        #    message["msg_type"] = "mod_file" 
+        #    message["params"]["prev_sha1"] = prev_sha1
+        #    
+        #json_object = json.dumps(message)
+        #print json_object #debug
+        #
+        ##TODO: encrypt object
+        #self.out_queue.put(json_object)
+    
+    
     def delete_file(self, file_uuid, sha1_hash):
         '''
         Send message to delete file from server
