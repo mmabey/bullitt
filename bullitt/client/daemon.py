@@ -51,6 +51,8 @@ class Client():
         self.receiver = _Receiver(self.in_queue, self)
  
         self.received_in_progress = dict()       
+        self.requested_file_slice_count = dict()
+        self.expect_slices = dict()
         #TODO: implement reading the client.json
 
     def choochoo(self):
@@ -336,6 +338,23 @@ class Client():
         #TODO: encrypt
         self.out_queue.put(json_object)
         
+    def request_file(self, file_id, sha1_hash, bytes):
+        
+        file_id =  str(file_id)
+        
+        message = {
+                   "msg_type": "request_file",
+                   "params"  : {
+                                "id"  : file_id,
+                                "sha1": sha1_hash
+                                }
+                   }
+        
+        self.requested_file_slice_count[file_id] = int(
+                            math.ceil(bytes / float(client.CONST_SLICE_SIZE)))
+        
+        self.expect_slices[file_id] = dict()
+        
 class _Sender(RabbitObj, threading.Thread):
     '''
     Based on Mike's code in db.py
@@ -445,6 +464,9 @@ class _Receiver(RabbitObj, threading.Thread):
             self.parent.received_in_progress[id] = list()
             handle = self.parent.received_in_progress[id]
             handle[num] = slice
+            
+            if len(handle) == self.parent.requested_file_slice_count:
+                parent.reassemble_slices() #what did I do wrong
             
         else:
             print "I have no idea what I'm doing (unexpect msg error)"
