@@ -1,1 +1,22 @@
 \section{Conclusion}
+	
+	The main objectives of this project, as stated in the description provided to us, were:
+	
+	\begin{itemize*}
+		\item Each VM is assigned to a client (user)
+		\item Each VM has a public and private key pair
+		\item All files are shared and clients can have read and/or write permissions on them
+		\item Clients can query the Index Server for a list of files for which it has permissions
+		\item Clients can add, modify, and delete files to the system
+		\item The Index Server keeps track of all operations on files and the locations of where they are stored
+		\item Clients download files from each other in parallel over an encrypted channel
+		\item Clients should have a daemon running to service requests from other clients
+		\item Files are regarded as the same if they have the same SHA1 checksum value
+		\item Clients may be grouped together, which information should be stored locally on the client
+	\end{itemize*}
+	
+	Out of all the above objectives, we were successful in implementing to some degree all items except for the last item.  Our system does not use the notion of groups at all since we were unable to foresee any performance or functional advantage
+	
+	
+	\subsection{Division of Work}
+		ah

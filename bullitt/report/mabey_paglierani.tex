@@ -1,8 +1,34 @@
-\documentclass{report}
+\documentclass[12pt,letterpaper,onecolumn]{article}
+
+\usepackage{fullpage}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{mdwlist}
+\usepackage{easylist}
+
 
 \begin{document}
 	
+	%(a) Project title, date, name (5%) - DONE
+	%(b) Project description (1 paragraph) (5%) - DONE
+	%(c) Network set up of the project (a diagram is preferred with understandable labels)(5%) - DONE
+	%(d) List of software packages used in the project (5%)
+	%(e) Step-by-step project description (screen snapshots are required). In order to prepare for your report, you might need a floppy or memory stick to copy the necessary configuration files, images, etc. (25%)
+	%(f) Conclusion (to address if you have successfully finished the project; if not, what are missed?) (5%)
+	%(g) Attached files, (such as configuration files, etc), Mark where you have changed/added/deleted the file. (10%) - DONE
+	
+	
 	% Title, intro, and description go here
+	\title{Bullitt: A Collaborative Data Sharing System}
+	\author{Mike Mabey and Justin Paglierani\\
+			CSE 548: Advanced Computer Network Security\\
+			Dr. Dijiang Huang}
+	\date{Spring 2012}
+	\maketitle
+	
+	\section{Introduction}
+	The goal of the project is to design and implement a file sharing system capable of distributing the storage of files among VMs whose users have access to them, ensuring consistency across all VMs with a copy of any file, to restrict access to files in the system according to the permissions stored by a file index server, and to protect the transmission of all files' contents by encrypting their contents.  The accomplishment of this goal is primarily realized through the use of the Advanced Messaging Queue Protocol (AMQP), a public-key infrastructure (PKI), and JavaScript Object Notation (JSON).
+	
 
 	\input{network_setup}
 	

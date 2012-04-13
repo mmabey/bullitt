@@ -1,2 +1,44 @@
 \section{Detailed Description}
 	
+	Introductory paragraph
+	
+	\subsection{Database}
+		\label{sec:db}
+		
+		Database layout and description of how the tables relate to each other goes here
+		
+		
+	\subsection{Client VMs}
+		\label{sec:clients}
+		
+		Details of how client performs various operations goes here
+		
+		\subsubsection{Client Operations}
+			\label{sec:client_ops}\hypertarget{sec:client_ops}{}
+			
+			Client operations...
+		
+		
+	\subsection{Index Server}
+		\label{sec:server}
+		
+		The Index Server is comprised of three main parts: the daemon, the business logic layer, and the database handler.
+		
+		\subsubsection{Server Daemon}
+			
+			Like the code for the client, the server was written in Python.  It uses the RabbitMQ service (which is an implementation of the AMQP protocol) via the pika library.  The RabbitMQ service is installed on the server and handles all messages being passed from clients to the server as well as from clients to other clients.
+			
+			Any traffic destined for the daemon itself is sent to the \verb|client_operations| queue, to which only the server is listening.  The queue is thus named because all messages to the server represent a request for the server to perform some operation on behalf of the client.  The body of all operation messages must have the same general structure and be a JSON-formatted string with a single object type with two keys: \verb|msg_type| and \verb|params|.
+			
+			The \verb|msg_type| key should have a value that indicates what operation is being requested.  The \verb|params| key should also be an object type with keys specific to the operation being performed.  For more information on the valid operations (message types) and the parameters required for that operation, please see Section~\ref{}.
+			
+			
+			
+		\subsubsection{Server Business Logic}
+			
+			As is standard, the business logic of the Index Server is where any checking of rules for access to the database or aggregation of database results is done. 
+			
+			
+		\subsubsection{Server Database Handler}
+			
+			
