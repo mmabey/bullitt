@@ -18,6 +18,7 @@ import os
 import math
 import json
 import base64
+import Queue
 
 # Third-party libraries
 import Crypto
@@ -27,7 +28,7 @@ from bullitt.common.cuffrabbit import RabbitObj
 
 # Constants/Globals
 
-class Client(RabbitObj):
+class Client():
 
     def __init__(self):
         
@@ -39,9 +40,12 @@ class Client(RabbitObj):
         self.CONST_SLICE_SIZE = json_data["slice_size"]
         self.rabbit_server = json_data["rabbit_server"]
 
-        #parent constructor
-        #TODO: Uncomment for deploy
-        RabbitObj.__init__(self, self.rabbit_server)
+        #initialize queues
+        self.out_queue = Queue.Queue()
+        self.in_queue = Queue.Queue()
+        
+        #initialize messengers
+        self.sender = _Sender(self.out_queue, self.rabbit_server)
         
         #TODO: implement reading the client.json
 
@@ -153,7 +157,7 @@ class Client(RabbitObj):
         #print slice == base64.b64decode(base64.b64encode(slice))
         
         #TODO: encrypt the json object
-        #TODO: fire off to RMQ server
+        self.out_queue.put(json_object)
         
     def add_or_mod_file(self, filename, prev_sha1=None, file_uuid=None):
         '''
@@ -199,7 +203,7 @@ class Client(RabbitObj):
         print json_object #debug
         
         #TODO: encrypt object
-        #TODO: fire off to sender thread
+        self.out_queue.put(json_object)
         
     def delete_file(self, file_uuid, sha1_hash):
         '''
@@ -216,7 +220,7 @@ class Client(RabbitObj):
         json_object = json.dumps(message)
         
         #TODO: encrypt object
-        #TODO: send message
+        self.out_queue.put(json_object)
         
     def get_peers(self):
         message = {
@@ -229,7 +233,7 @@ class Client(RabbitObj):
         json_object = json.dumps(message)
         
         #TODO: encrypt object
-        #TODO: send message
+        self.out_queue.put(json_object)
         
     def get_grant_revoke_params(self, file_uuid, client_uuid, read, write):
         '''
@@ -262,7 +266,7 @@ class Client(RabbitObj):
         print json_object #debug
         
         #TODO: encrypt object
-        #TODO: send message
+        self.out_queue.put(json_object)
         
     def revoke_rights(self, file_uuid, client_uuid, read, write):
         '''
@@ -279,7 +283,7 @@ class Client(RabbitObj):
         print json_object #debug
         
         #TODO: encrypt object
-        #TODO: send message
+        self.out_queue.put(json_object)
         
     def query_rights(self, file_uuid):
         '''
@@ -298,7 +302,7 @@ class Client(RabbitObj):
         json_object = json.dumps(message)
         
         #TODO: encrypt object
-        #TODO: send message
+        self.out_queue.put(json_object)
         
     def list_files(self):
         '''
@@ -313,7 +317,7 @@ class Client(RabbitObj):
         json_object = json.dumps(message)
         
         #TODO: encrypt
-        #TODO: send
+        self.out_queue.put(json_object)
         
     def version_downloaded(self, sha1_hash):
         message = {
@@ -327,16 +331,51 @@ class Client(RabbitObj):
         json_object = json.dumps(message)
         
         #TODO: encrypt
-        #TODO: send
+        self.out_queue.put(json_object)
         
-    class MessageTask(threading.Thread):
-        def run(self):
-            '''
-            This method will handle the sending/receiving of messages
-            '''
-            pass
+class _Sender(RabbitObj, threading.Thread):
+    '''
+    Based on Mike's code in db.py
+    '''
+    
+    def __init__(self, host, queue):
+        '''
+        '''
+        # Initialize thread
+        threading.Thread.__init__(self)
+        self.daemon = True
         
-        #TODO: implement send and receive
+        # Initialize connection parameters
+        RabbitObj.__init__(self, **dict(host=host))
+        self._queue_name = queue
+    
+    def run(self):
+        # Connect to MQ server. Should be last thing in this method.
+        self.init_connection(callback=self.main, queue_name=self._queue_name,
+                             exchange_type='direct')
+    
+    
+    def main(self):
+        '''
+        '''
+        # Start listening to the queue
+        self.start_sending()
+    
+    def start_sending(self):
+        self._pre_msg_send()
+        while True:
+            msg = self.output_queue.get()
+            # TODO: Process message and send it on
+
+            method, body = msg
+            
+            self.send_message(body, routing_key=method.routing_key)
+
+            #print " [x] Forwarded message to %s : %s" % (self.exchange, 
+            #                                                method.routing_key)
+                                                             
+            # Signal the queue that the message has been sent
+            self.output_queue.task_done()
         
 if __name__ == '__main__':
     '''

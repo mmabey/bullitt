@@ -31,5 +31,9 @@ def pull():
     PULL a file into the local store from peers
     '''
 
+def main():
+    title = "Bullitt Client: The Collaborative Data Sharing System"
+    print "{0}\n{1}".format(title.center(80), ('=' * len(title)).center(80))
+
 if __name__ == '__main__':
-    print_main_menu()
+    main()
