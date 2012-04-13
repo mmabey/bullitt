@@ -1,6 +1,6 @@
 #!/bin/bash
 
 sudo apt-get install python python-pip python-pycryptopp sl
-sudo pip install pika
+sudo pip install pika PyCrypto
 sl
 echo "CHOO CHOO!!"
