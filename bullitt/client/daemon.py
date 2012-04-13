@@ -453,6 +453,7 @@ class _Receiver(RabbitObj, threading.Thread):
         # Perform requested action
         #TODO: add the other operations here
         if action in ('send_slice'):
+           
             #TODO: decrypt into var json_object
             
             json_object = None #decrypt the message here
