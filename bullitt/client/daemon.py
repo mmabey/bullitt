@@ -29,26 +29,25 @@ from bullitt.common.cuffrabbit import RabbitObj
 class Client():
 
     def __init__(self):
-        
-        #TODO: fix path to gen_config
-        
         #read slice size from our config json
-        gen_config_json = open("../common/gen_config.json")
-        json_data = json.load(gen_config_json)
-        gen_config_json.close()
+        p = os.path.dirname(os.path.realpath(__file__))
+        p = os.path.realpath(os.path.join(p, '..', 'common'))
+        with open(os.path.join(p, 'gen_config.json')) as fin:
+            json_data = json.load(fin)
         self.CONST_SLICE_SIZE = json_data["slice_size"]
         self.rabbit_server = str(json_data['rabbit_server'])
 
-        print "rabbit_server: \"{0}\" is a {1}".format(self.rabbit_server, 
-                                                   type(self.rabbit_server))
+        #print 'rabbit_server: "%s" is a %s' % (self.rabbit_server,
+        #                                       type(self.rabbit_server))
+        #print '%r' % json_data
 
         #initialize queues
         self.out_queue = Queue.Queue()
         self.in_queue = Queue.Queue()
         
         #initialize messengers
-        self.sender = _Sender(self.out_queue, self.rabbit_server)
-        self.receiver = _Receiver(self.in_queue, self)
+        self.sender = _Sender(self.rabbit_server, self.out_queue)
+        self.receiver = _Receiver(self, self.rabbit_server, self.in_queue)
  
         self.received_in_progress = dict()       
         self.requested_file_slice_count = dict()
@@ -163,6 +162,34 @@ class Client():
         
         #TODO: encrypt the json object
         self.out_queue.put(json_object)
+    
+    
+    def send_op_msg(self, msg_type, bytes=None, client=None, id=None,
+                    name=None, num=None, prev_sha1=None, read=None, sha1=None,
+                    slice=None, write=None):
+        '''
+        Send a generic client operation message to the server.
+        
+        Parameters:
+        msg_type = REQUIRED. Operation type specified by the message
+        bytes = Size of the file
+        client = The grantee client's UUID
+        id = The file UUID
+        name = The file name
+        num = Slice number
+        prev_sha1 = SHA1 of the previous version of the file
+        read = True/False/None read permission
+        sha1 = SHA1 of the current version of the file
+        slice = The data of the slice
+        write = True/False/None write permission
+        '''
+        params = locals()
+        params.pop('msg_type')
+        params.pop('self')
+        for key in params:
+            if key is None: params.pop(key)
+        self.out_queue.put(json.dumps(dict(msg_type=msg_type, params=params)))
+    
         
     def add_or_mod_file(self, filename, prev_sha1=None, file_uuid=None):
         '''
@@ -189,7 +216,7 @@ class Client():
         
         message = {
                    "params":
-                            {"id":file_uuid, 
+                            {"id":file_uuid,
                              "name":filename,
                              "bytes":file_size,
                              "sha1":sha1_hash,
@@ -198,7 +225,7 @@ class Client():
         
         if prev_sha1 == None:
             #adding file to system
-            message["msg_type"]  = "add_file" 
+            message["msg_type"] = "add_file" 
         else:
             #modifying file in system
             message["msg_type"] = "mod_file" 
@@ -340,7 +367,7 @@ class Client():
         
     def request_file(self, file_id, sha1_hash, bytes):
         
-        file_id =  str(file_id)
+        file_id = str(file_id)
         
         message = {
                    "msg_type": "request_file",
