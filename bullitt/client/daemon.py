@@ -38,7 +38,11 @@ class Client():
         gen_config_json = open("../common/gen_config.json")
         json_data = json.load(gen_config_json)
         self.CONST_SLICE_SIZE = json_data["slice_size"]
-        self.rabbit_server = json_data["rabbit_server"]
+        self.rabbit_server = str(json_data["rabbit_server"])
+
+        print "rabbit_server: \"{0}\" is a {1}".format(self.rabbit_server, 
+                                                   type(self.rabbit_server))
+
 
         #initialize queues
         self.out_queue = Queue.Queue()
