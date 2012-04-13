@@ -6,6 +6,7 @@ Created on Apr 4, 2012
 @author: Justin
 '''
 
+import subprocess
 from daemon import Client
 
 file_dict = None
@@ -147,6 +148,8 @@ def main():
             list_files()
         elif resp == '9':
             request_file()
+        elif resp == '666':
+            subprocess.call('sl')
             
     print
 
