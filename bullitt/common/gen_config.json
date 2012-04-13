@@ -1,4 +1,5 @@
 {
 	"slice_size": 184320,
-	"op_queue"  : "client_operations"
+	"op_queue"  : "client_operations",
+	"rabbit_server"  : "10.0.102.155"
 }

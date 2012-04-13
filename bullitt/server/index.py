@@ -8,6 +8,8 @@ Created on Apr 5, 2012
 # Library imports
 import json
 import os
+import Queue
+import threading
 
 # Third-party libraries
 
@@ -21,7 +23,7 @@ INFO = True
 
 
 
-class Server(RabbitObj):
+class Server(object):
     '''
     The main command and control center for the Bullitt Index Server.
     
@@ -49,28 +51,84 @@ class Server(RabbitObj):
         p = os.path.realpath(os.path.join(p, '..', 'common'))
         with open(os.path.join(p, 'gen_config.json')) as fin:
             genconfig = json.load(fin)
-        host = config['rabbit_server']
+        host = genconfig['rabbit_server']
         queue = genconfig['op_queue']
         
         # Operation parameters
         self.ops = dict(add_file=('id', 'name', 'bytes', 'sha1'),
+                        client_lookup=(), # Do param verification differently
                         del_file=('id', 'name', 'sha1'),
                         get_peers=('id',),
                         grant=('id', 'client', 'read', 'write'),
+                        list_files=(), # No parameters needed
                         mod_file=('id', 'name', 'bytes', 'sha1', 'prev_sha1'),
                         query_rights=('id',),
                         request_file=('id', 'sha1'),
                         revoke=('id', 'client', 'read', 'write'),
-                        update_complete=('id', 'sha1'))
+                        version_downloaded=('id', 'sha1'),)
         
         # Create DB biz object
         self.biz = ServerBiz()
         
-        # Initialize connection parameters
-        RabbitObj.__init__(self, dict(host=host))
+        # Create Listener object
+        self.signal_queue = Queue.Queue()
+        self.listener = _Listener(self, host, queue)
+        self.listener.start()
+    
+    
+    def add_client(self, client_id, ipaddr, pub_key):
+        '''
+        Add a client to the system with the given ID, IP address, and pub key.
+        '''
+        self.biz.add_client(client_id, ipaddr, pub_key)
+    
+    
+    def get_clients(self):
+        '''
+        '''
+        return self.biz.get_clients()
+    
+    
+    def del_client(self, client_id=None, ipaddr=None):
+        '''
+        Given either a client ID or a client IP address, delete the client.
         
+        Returns False if unsuccessful.
+        '''
+        if not client_id:
+            if not ipaddr:
+                return False
+            info = self.biz.client_lookup(ipaddr=ipaddr)
+            if not info:
+                if DEBUG:
+                    print "Could not find a client with IP address %s" % ipaddr
+                return
+            client_id = info['user_id']
+        return self.biz.del_client(client_id)
+
+
+
+class _Listener(RabbitObj, threading.Thread):
+    '''
+    '''
+    
+    def __init__(self, parent, host, queue):
+        '''
+        '''
+        # Initialize thread
+        threading.Thread.__init__(self)
+        self.daemon = True
+        
+        # Initialize connection parameters
+        RabbitObj.__init__(self, **dict(host=host))
+        self._queue_name = queue
+        self.parent = parent
+        self.biz = parent.biz
+    
+    
+    def run(self):
         # Connect to MQ server. Should be last thing in this method.
-        self.init_connection(callback=self.main, queue_name=queue,
+        self.init_connection(callback=self.main, queue_name=self._queue_name,
                              exchange_type='direct')
     
     
@@ -110,12 +168,14 @@ class Server(RabbitObj):
         params = job_data['params']
         
         # Perform requested action
-        if action in ('add_file', 'mod_file', 'del_file', 'grant', 'revoke',
-                      'update_complete'):
+        if action in ('add_file', 'grant', 'revoke', 'update_complete'):
             # These operations don't need any further processing past the
             # business logic
             self.biz.__dict__[action](params, client_id)
         else:
+            if action not in dir():
+                raise AttributeError('Method "%s" not found in class Server' % \
+                                     action)
             self.__dict__['_' + action](params, client_id)
         
         # Acknowledge message
@@ -133,21 +193,71 @@ class Server(RabbitObj):
         return True
     
     
+    def _client_lookup(self, params, client_id):
+        '''
+        '''
+        raise NotImplementedError#TODO: 
+    
+    
+    def _del_file(self, params, client_id):
+        '''
+        Delete a file if client owns it, then notify its peers of the deletion.
+        '''
+        file_id = params['file_id']
+        sha1 = params['sha1']
+        if  sha1 != self.biz.get_file_version(file_id):
+            #TODO: Notify client that delete failed because the specified version is out of date
+            pass
+        peers = self.biz.get_file_peers(file_id, client_id, 'all',
+                                        get_pub_key=False)
+        if peers:
+            self.biz.del_file(params, client_id)
+            body = dict(msg_type="file_deleted",
+                        params=dict(file_id=file_id, sha1=sha1))
+            for p in peers:
+                self.send_message(body=json.dumps(body),
+                                  routing_key=p['user_id'])
+    
+    
     def _get_peers(self, params, client_id):
         '''
+        Return the list of other clients that have access to a file.
         '''
+        file_id = params['id']
+        sha1 = None
+        if 'sha1' in params: sha1 = params['sha1']
+        ret = self.biz.get_file_peers(file_id, client_id, sha1)
+        self.send_message(body=json.dumps(ret), routing_key=client_id)
+    
+    
+    def _list_files(self, params, client_id):
+        '''
+        Return the list of files to which the client has access.
+        '''
+        ret = self.biz.get_client_files(client_id)
+        self.send_message(body=json.dumps(ret), routing_key=client_id)
+    
+    
+    def _mod_file(self, params, client_id):
+        '''
+        '''
+        raise NotImplementedError#TODO: 
     
     
     def _query_rights(self, params, client_id):
+        '''
+        '''
         ret = self.biz.get_file_owner(params['id'])
         if client_id == ret:
             # Client is file owner
             pass
+        raise NotImplementedError#TODO: 
     
     
     def _request_file(self, params, client_id):
-        pass
-
+        '''
+        '''
+        raise NotImplementedError#TODO: 
 
 
 

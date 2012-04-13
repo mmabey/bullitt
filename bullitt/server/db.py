@@ -16,7 +16,7 @@ import uuid
 
 # Third-party libraries
 from sqlalchemy import create_engine, MetaData, Table, Column, String, \
-                       Integer, Boolean, PickleType, and_, not_
+                       Integer, Boolean, PickleType, and_, not_, or_
 from sqlalchemy.sql import select
 
 # Local imports
@@ -24,6 +24,7 @@ from sqlalchemy.sql import select
 # Constants
 __all__ = ['ServerBiz']
 LOGGING = False
+DEBUG = False
 
 
 
@@ -75,11 +76,39 @@ class ServerBiz(object):
         self.db = BullittSQL()
     
     
+    def add_client(self, client_id, ipaddr, pub_key):
+        '''
+        
+        Add a client to the system with the given ID, IP address, and pub key.
+        '''
+        self.db.insert_user(client_id, pub_key, ipaddr)
+    
+    
+    def get_clients(self):
+        '''
+        Return clients' info in a tuple of dicts where column names are keys.
+        '''
+        return self.db.select_users_all()
+    
+    
+    def del_client(self, client_id):
+        '''
+        Delete the client if it exists.  Return false otherwise.
+        '''
+        res = self.client_exists(client_id)
+        if res:
+            print "Client exists: %s" % client_id
+            return self.db.delete_user(client_id)
+        print "Client does not exist: %s" % client_id
+        print res
+        return False
+    
+    
     def client_exists(self, client_id):
         '''
         Return if the given client_id is in the system.
         '''
-        return bool(self.db.select_user(client_id, 'user_id'))
+        return self.db.select_user(client_id, field='user_id')
     
     
     def file_exists(self, file_id):
@@ -100,9 +129,7 @@ class ServerBiz(object):
         '''
         Return the permissions a client has on a file as a dict, None if NULL.
         '''
-        res = self.db.select_perm(file_id, client_id)
-        if res == None: return
-        return dict(zip(('read', 'write', 'owner'), res))
+        return self.db.select_perm(file_id, client_id)
     
     
     def can_update(self, file_id, client_id):
@@ -117,13 +144,13 @@ class ServerBiz(object):
         '''
         For a given file, return the UUID of the owner client.
         '''
-        owner_id = self.db.select_file(file_id, 'owner_id')
+        owner_id = self.db.select_file(file_id, 'owner_id')['owner_id']
         if client_id == None:
             return owner_id
         return owner_id == client_id
     
     
-    def get_file_peers(self, file_id, client_id, sha1=None):
+    def get_file_peers(self, file_id, client_id, sha1=None, get_pub_key=True):
         '''
         For a given file, return the list of clients with a copy of it.
         
@@ -132,10 +159,10 @@ class ServerBiz(object):
         '''
         # Check the client's permissions by checking if it is in the list
         # of users with a permission on it.
-        peers = self.db.select_file_peers(file_id, sha1)
+        peers = self.db.select_file_peers(file_id, sha1, get_pub_key)
         try:
-            peers.remove(client_id)
-        except ValueError:
+            peers.pop(client_id)
+        except KeyError:
             return
         return peers
     
@@ -144,17 +171,33 @@ class ServerBiz(object):
         '''
         Return the current SHA1 hash of the file.
         '''
-        return self.db.select_file(file_id, 'sha1')
+        return self.db.select_file(file_id, 'sha1')['sha1']
+    
+    
+    def get_client_files(self, client_id):
+        '''
+        Return the list of files to which a client has access.
+        '''
+        return self.db.select_user_files(client_id)
     
     
     def publish_update(self, file_id, checksum):
         '''
         Announce the given file has been updated to the new checksum.
         '''
-        pass
+        pass#TODO:
     
     
-    def add_file(self, params, client_id):
+    # CLIENT OPERATION METHODS BEGIN HERE
+    # -----------------------------------
+    #
+    # Many of the following methods are direct implementations of the
+    # corresponding client operation.  In other words, there are no methods on
+    # the index server that intermediates for them.  To help distinguish 
+    # between the methods that do and do not have an intermediating method on 
+    # the index server, each is marked by a comment after the method signature.
+    
+    def add_file(self, params, client_id): # Biz only
         '''
         Add a file to the system.  Set the client as the owner.
         '''
@@ -165,7 +208,7 @@ class ServerBiz(object):
         self.db.insert_file(file_id, client_id, file_name, sha1, size)
     
     
-    def mod_file(self, params, client_id):
+    def mod_file(self, params, client_id): # Biz only
         '''
         Update the file entry with current information.
         
@@ -184,7 +227,7 @@ class ServerBiz(object):
                                 size=size)
     
     
-    def del_file(self, params, client_id):
+    def del_file(self, params, client_id): # INDEX
         '''
         Delete the file entry if the client is the owner.
         '''
@@ -193,10 +236,9 @@ class ServerBiz(object):
         if self.get_file_owner(file_id, client_id) and \
                 self.get_file_version(file_id) == sha1:
             self.db.delete_file(file_id)
-            #TODO: Should the index server notify clients?
     
     
-    def grant(self, params, client_id):
+    def grant(self, params, client_id): # Biz only
         '''
         Grant a client more rights on a file.  Only read/write supported.
         
@@ -230,7 +272,7 @@ class ServerBiz(object):
                 pass
     
     
-    def revoke(self, params, client_id):
+    def revoke(self, params, client_id): # Biz only
         '''
         Remove rights from a client on a file.  Only read/write supported.
         '''
@@ -253,31 +295,13 @@ class ServerBiz(object):
                 pass
     
     
-    def version_downloaded(self, params, client_id):
+    def version_downloaded(self, params, client_id): # Biz only
         '''
         Store the SHA1 of the file's version that the client has.
         '''
         file_id = params['id']
         sha1 = params['sha1']
         self.db.update_user_version(file_id, client_id, sha1)
-    
-    
-    def add_client(self):
-        '''
-        '''
-        pass
-    
-    
-    def view_clients(self):
-        '''
-        Return a tuple of tuples where 
-        '''
-    
-    
-    def del_client(self):
-        '''
-        '''
-        pass
     
     
     def client_lookup(self, client_id=None, ipaddr=None, pub_key=None):
@@ -324,11 +348,10 @@ class BullittSQL(object):
         
         # Define the tables for the database
         self.user_table = Table('user_list', self.metadata,
-                                #TODO: Any other fields are necessary?
                                 Column('user_id', String(36), primary_key=True,
                                        nullable=False),
                                 Column('pub_key', PickleType, nullable=False),
-                                Column('ipaddr', String(15), nullable=False))#TODO: Integrate this -> Add other necessary code
+                                Column('ipaddr', String(15), nullable=False))
         self.file_table = Table('file_list', self.metadata,
                                 Column('file_id', String(36), primary_key=True,
                                        nullable=False),
@@ -370,15 +393,14 @@ class BullittSQL(object):
         self.metadata.create_all()
     
     
-    def insert_user(self, client_id, pub_key):
+    def insert_user(self, client_id, pub_key, ipaddr):
         '''
         Insert the fields for a new client.
         '''
         uvals = dict(user_id=client_id,
-                     #TODO: Add other fields of table below
-                     pub_key=pub_key)
-        ures = self.user_table.insert().execute(**uvals)
-        return ures
+                     pub_key=pub_key,
+                     ipaddr=ipaddr)
+        return self.user_table.insert().execute(**uvals)
     
     
     def select_user(self, client_id=None, ipaddr=None, pub_key=None,
@@ -394,25 +416,70 @@ class BullittSQL(object):
         Returns a dictionary where the column names are the keys.
         '''
         where = None
+        wherechanged = False
         if client_id is not None:
             where = self.user_table.c.user_id == client_id
+            wherechanged = True
         elif ipaddr is not None:
             where = self.user_table.c.ipaddr == ipaddr
+            wherechanged = True
         elif pub_key is not None:
             where = self.user_table.c.pub_key == pub_key
+            wherechanged = True
         
-        if where == None: return
+        if not wherechanged:
+            if DEBUG: print "Didn't make a WHERE properly..."
+            return
         
         if field == None:
             field = [self.user_table]
         else:
-            field = [self.user_table.c.__dict__[field]]
+            if DEBUG: print self.user_table.c.__dict__
+            field = [self.user_table.c.__dict__['_data'][field]]
         
         result = self.conn.execute(select(field, where))
         row = result.fetchone()
         result.close()
         keys = tuple([col.name for col in tuple(self.user_table.columns)])
         return dict(zip(keys, row))
+    
+    
+    def select_users_all(self):
+        '''
+        Retrieve data for all users in the system.
+        
+        This method is primarily for use with testing systems and should be 
+        used with discretion at any other time.
+        '''
+        result = self.conn.execute(select([self.user_table]))
+        users = []
+        keys = tuple([col.name for col in tuple(self.user_table.columns)])
+        for row in result:
+            users.append(dict(zip(keys, row)))
+        return users
+    
+    
+    def select_user_files(self, client_id):
+        '''
+        Return the files to which the client has access to.
+        
+        The files are returned as a tuple of dictionaries, where each one is a 
+        returned result where the column names are the keys.
+        '''
+        s = select([self.file_table, self.perm_table.c.read,
+                    self.perm_table.c.write, self.perm_table.c.owner],
+                   and_(self.perm_table.c.user_id == client_id,
+                        self.perm_table.c.file_id == self.file_table.c.file_id,
+                        or_(self.perm_table.c.read == True,
+                            self.perm_table.c.write == True,
+                            self.perm_table.c.owner == True)))
+        result = self.conn.execute(s)
+        files = []
+        keys = [col.name for col in tuple(self.file_table.columns)]
+        keys += ['read', 'write', 'owner']
+        for row in result:
+            files.append(dict(zip(keys, row)))
+        return files
     
     
     def update_user_version(self, file_id, client_id, sha1):
@@ -489,28 +556,39 @@ class BullittSQL(object):
         return dict(zip(keys, row))
     
     
-    def select_file_peers(self, file_id, sha1=None):
+    def select_file_peers(self, file_id, sha1=None, get_pub_key=True):
         '''
         Return a list of client IDs that have permissions on the given file.
         
         If a client has been reduced to no permissions on the file (i.e. both
         read and write fields are False), it will not be included in the list.
         '''
-        #TODO: Select the pub_key field from the user_list table, too
-        #TODO: Fetch only the peers with the specified SHA1 hash if specified, otherwise just get the latest
-        s = select([self.perm_table.c.user_id],
+        if sha1 == None:
+            sha1 = self.perm_table.c.sha1 == self.file_table.c.sha1
+        elif sha1 == 'all':
+            sha1 = True
+        else:
+            sha1 = self.perm_table.c.sha1 == sha1
+        
+        fields = [self.perm_table.c.user_id]
+        keys = ['user_id']
+        if get_pub_key:
+            fields.append(self.user_table.c.pub_key)
+            keys.append('pub_key')
+        
+        s = select(fields,
                    and_(self.perm_table.c.file_id == file_id,
-                        not_(and_(self.perm_table.c.write == False,
-                                  self.perm_table.c.read == False)
-                             )
+                        self.perm_table.c.user_id == self.user_table.c.user_id,
+                        or_(self.perm_table.c.write == True,
+                            self.perm_table.c.read == True),
+                        sha1,
                         )
                    )
         result = self.conn.execute(s)
         peers = []
         for row in result:
-            peers.append(row)
+            peers.append(dict(zip(fields, row)))
         result.close()
-        #TODO: Make sure the peers' public keys are being returned here
         return peers
     
     
@@ -526,7 +604,7 @@ class BullittSQL(object):
             sha1 = sha1.hexdigest()
         except AttributeError:
             pass
-        prev_sha1 = self.select_file(file_id, 'sha1')
+        prev_sha1 = self.select_file(file_id, 'sha1')['sha1']
         fvals = dict(sha1=sha1, prev_sha1=prev_sha1, size=size)
         ret1 = self.file_table.update(self.file_table.c.file_id == str(file_id))
         return ret1.execute(**fvals)
@@ -568,8 +646,7 @@ class BullittSQL(object):
         '''
         Return the permissions of the given client on the given file.
         
-        Permissions are returned as a tuple of 3 boolean values:
-        (read, write, owner)
+        Permissions are returned as a dictionary with the column names as keys.
         '''
         s = select([self.perm_table.c.read,
                     self.perm_table.c.write,
@@ -580,7 +657,8 @@ class BullittSQL(object):
         result = self.conn.execute(s)
         row = result.fetchone()
         result.close()
-        return row
+        if row == None: return
+        return dict(zip(('read', 'write', 'owner'), row))
     
     
     def update_perm(self, file_id, client_id, read=None, write=None):
