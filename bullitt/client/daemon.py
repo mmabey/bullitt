@@ -7,8 +7,6 @@ Created on Apr 4, 2012
 
 '''
 
-#TODO: generate public keys and client uuids and store info in json and IP
-
 # Library imports
 import threading
 import subprocess
@@ -37,12 +35,12 @@ class Client():
         #read slice size from our config json
         gen_config_json = open("../common/gen_config.json")
         json_data = json.load(gen_config_json)
+        gen_config_json.close()
         self.CONST_SLICE_SIZE = json_data["slice_size"]
-        self.rabbit_server = str(json_data["rabbit_server"])
+        self.rabbit_server = str(json_data['rabbit_server'])
 
         print "rabbit_server: \"{0}\" is a {1}".format(self.rabbit_server, 
                                                    type(self.rabbit_server))
-
 
         #initialize queues
         self.out_queue = Queue.Queue()
@@ -50,7 +48,9 @@ class Client():
         
         #initialize messengers
         self.sender = _Sender(self.out_queue, self.rabbit_server)
-        
+        self.receiver = _Receiver(self.in_queue, self)
+ 
+        self.received_in_progress = dict()       
         #TODO: implement reading the client.json
 
     def choochoo(self):
@@ -136,7 +136,6 @@ class Client():
         
         Slices are encoded as base64 for transfer (JSON doesnt handle binary)
         '''
-        #TODO: this will probably send a message via rabbitmq
         
         #generate sha1
         sha1_hash = hashlib.sha1(slice).hexdigest()
@@ -381,6 +380,79 @@ class _Sender(RabbitObj, threading.Thread):
             # Signal the queue that the message has been sent
             self.output_queue.task_done()
         
+#TODO: implement receive
+class _Receiver(RabbitObj, threading.Thread):
+    '''
+    Receiver based on Mike's code
+    '''
+    
+    def __init__(self, parent, host, queue):
+        '''
+        '''
+        # Initialize thread
+        threading.Thread.__init__(self)
+        self.daemon = True
+        
+        # Initialize connection parameters
+        RabbitObj.__init__(self, **dict(host=host))
+        self._queue_name = queue
+        self.parent = parent
+    
+    def run(self):
+        # Connect to MQ server. Should be last thing in this method.
+        self.init_connection(callback=self.main, queue_name=self._queue_name,
+                             exchange_type='direct')
+    
+    
+    def main(self):
+        '''
+        '''
+        # Start listening to the queue
+        self.receive_message(callback=self.process_msg)
+        
+        # Do anything else that should be asynchronous to listening for messages
+    
+    
+    def process_msg(self, ch, method, props, body):
+        '''
+        If the message from the client is valid, perform the requested action.
+        
+        Since this method is specified as the callback whenever a message is
+        received from a client, 
+        '''
+        # Extract client's ID and check it is valid
+        client_id = props.user_id
+        
+        #TODO: decrypt slice message
+        
+        # Parse message
+        job_data = json.loads(body)
+        
+        action = job_data['msg_type']
+        params = job_data['params']
+        
+        # Perform requested action
+        #TODO: add the other operations here
+        if action in ('send_slice'):
+            #TODO: decrypt into var json_object
+            
+            json_object = None #decrypt the message here
+            
+            id = json_object['id']
+            num = json_object['num']
+            slice = base64.b64decode(json_object['slice'])
+            
+            self.parent.received_in_progress[id] = list()
+            handle = self.parent.received_in_progress[id]
+            handle[num] = slice
+            
+        else:
+            print "I have no idea what I'm doing (unexpect msg error)"
+        
+        # Acknowledge message
+        self.ack(method.delivery_tag)
+
+
 if __name__ == '__main__':
     '''
     Purely a testing method - should be removed before deploying
