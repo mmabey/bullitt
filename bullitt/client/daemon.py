@@ -228,175 +228,63 @@ class Client():
         msg_type = prev_sha1 is not None and 'mod_file' or 'add_file'
         self.send_op_msg(msg_type, id=file_uuid, name=filename,
                          bytes=file_size, sha1=sha1_hash, prev_sha1=prev_sha1)
-        #message = {
-        #           "params":
-        #                    {"id":file_uuid,
-        #                     "name":filename,
-        #                     "bytes":file_size,
-        #                     "sha1":sha1_hash,
-        #                    }
-        #           }
-        #
-        #if prev_sha1 == None:
-        #    #adding file to system
-        #    message["msg_type"] = "add_file" 
-        #else:
-        #    #modifying file in system
-        #    message["msg_type"] = "mod_file" 
-        #    message["params"]["prev_sha1"] = prev_sha1
-        #    
-        #json_object = json.dumps(message)
-        #print json_object #debug
-        #
-        ##TODO: encrypt object
-        #self.out_queue.put(json_object)
     
     
     def delete_file(self, file_uuid, sha1_hash):
         '''
         Send message to delete file from server
         '''
-        message = {
-                   "msg_type": "del_file",
-                   "params"  : {
-                                "id"  : file_uuid,
-                                "sha1": sha1_hash
-                                }
-                   }
-        
-        json_object = json.dumps(message)
-        
-        #TODO: encrypt object
-        self.out_queue.put(json_object)
-        
-    def get_peers(self):
-        message = {
-                   "msg_type": "get_peers",
-                   "params"  : {
-                                "id": self.uuid
-                                }
-                   }
-        
-        json_object = json.dumps(message)
-        
-        #TODO: encrypt object
-        self.out_queue.put(json_object)
-        
-    def get_grant_revoke_params(self, file_uuid, client_uuid, read, write):
-        '''
-        Preps message for either grant or revoke
-        '''
-        
-        #ensure it's a string
-        file_uuid = str(file_uuid)
-        client_uuid = str(client_uuid)
-        
-        return {
-                "id"    : file_uuid,
-                "client": client_uuid,
-                "read"  : read,
-                "write" : write
-                }
-        
+        self.send_op_msg('del_file', id=file_uuid, sha1=sha1_hash)
+    
+    
+    def get_peers(self, file_uuid):
+        self.send_op_msg('get_peers', id=file_uuid)
+    
+    
     def grant_rights(self, file_uuid, client_uuid, read, write):
         '''
         Grants rights on file to client
         '''
-        
-        params = self.get_grant_revoke_params(file_uuid, client_uuid, read, write)
-        message = {
-                    "msg_type":"grant",
-                    "params":params
-                   }
-        
-        json_object = json.dumps(message)
-        print json_object #debug
-        
-        #TODO: encrypt object
-        self.out_queue.put(json_object)
-        
+        self.send_op_msg('grant', id=file_uuid, client=client_uuid,
+                         read=read, write=write)
+    
+    
     def revoke_rights(self, file_uuid, client_uuid, read, write):
         '''
         Revoke rights on file from client
         '''
-        
-        params = self.get_grant_revoke_params(file_uuid, client_uuid, read, write)
-        message = {
-                    "msg_type":"revoke",
-                    "params":params
-                   }
-        
-        json_object = json.dumps(message)
-        print json_object #debug
-        
-        #TODO: encrypt object
-        self.out_queue.put(json_object)
-        
+        self.send_op_msg('revoke', id=file_uuid, client=client_uuid,
+                         read=read, write=write)
+    
+    
     def query_rights(self, file_uuid):
         '''
         Query rights of other users on a file
         '''
-        
-        file_uuid = str(file_uuid)
-        
-        message = {
-                   "msg_type": "query_rights",
-                   "params"  : {
-                                "id": file_uuid
-                                }
-                   }
-        
-        json_object = json.dumps(message)
-        
-        #TODO: encrypt object
-        self.out_queue.put(json_object)
-        
+        self.send_op_msg('query_rights', id=str(file_uuid))
+    
+    
     def list_files(self):
         '''
         Query for a list of files user has access to
         '''
+        self.send_op_msg('list_files')
+    
+    
+    def version_downloaded(self, file_uuid, sha1_hash):
+        self.send_op_msg('version_downloaded', id=file_uuid, sha1=sha1_hash)
+    
+    
+    def request_file(self, file_uuid, sha1_hash, bytes):
+        self.send_op_msg('request_file', id=str(file_uuid), sha1=sha1_hash)
         
-        message = {
-                   "msg_type":"list_files",
-                    "params":self.uuid
-                   }
-        
-        json_object = json.dumps(message)
-        
-        #TODO: encrypt
-        self.out_queue.put(json_object)
-        
-    def version_downloaded(self, sha1_hash):
-        message = {
-                   "msg_type": "version_downloaded",
-                   "params"  : {
-                                "id"  : self.uuid,
-                                "sha1": sha1_hash
-                                }
-                   }
-        
-        json_object = json.dumps(message)
-        
-        #TODO: encrypt
-        self.out_queue.put(json_object)
-        
-    def request_file(self, file_id, sha1_hash, bytes):
-        
-        file_id = str(file_id)
-        
-        message = {
-                   "msg_type": "request_file",
-                   "params"  : {
-                                "id"  : file_id,
-                                "sha1": sha1_hash
-                                }
-                   }
-        
-        self.requested_file_slice_count[file_id] = int(
+        self.requested_file_slice_count[file_uuid] = int(
                             math.ceil(bytes / float(client.CONST_SLICE_SIZE)))
         
-        self.expect_slices[file_id] = dict()
-        
+        self.expect_slices[file_uuid] = dict()
+
+
+
 class _Sender(RabbitObj, threading.Thread):
     '''
     Based on Mike's code in db.py
@@ -440,7 +328,9 @@ class _Sender(RabbitObj, threading.Thread):
                                                              
             # Signal the queue that the message has been sent
             self.output_queue.task_done()
-        
+
+
+
 #TODO: implement receive
 class _Receiver(RabbitObj, threading.Thread):
     '''
@@ -458,6 +348,7 @@ class _Receiver(RabbitObj, threading.Thread):
         RabbitObj.__init__(self, **dict(host=host))
         self._queue_name = queue
         self.parent = parent
+    
     
     def run(self):
         # Connect to MQ server. Should be last thing in this method.
