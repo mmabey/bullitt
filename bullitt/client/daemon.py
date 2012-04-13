@@ -31,6 +31,13 @@ class Client():
     def __init__(self):
         #read slice size from our config json
         client_dir = os.path.dirname(os.path.realpath(__file__))
+        with open(os.path.join('/home/vlab/keypair', 'client.json')) as fin:
+            cconfig = json.load(fin)
+            self.uuid = cconfig['uuid']
+            self.ipaddr = cconfig['ip']
+            self.pri_key = cconfig['pri_key']
+            self.pub_key = cconfig['pub_key']
+        
         common_dir = os.path.realpath(os.path.join(client_dir, '..', 'common'))
         with open(os.path.join(common_dir, 'gen_config.json')) as fin:
             json_data = json.load(fin)
@@ -39,7 +46,7 @@ class Client():
         self.server_queue = json_data['op_queue']
         
         # Keep session keys in this
-        self.session_keys = {}
+        self.session_keys = dict(server='')
         
         # Use this for long-term storage of file info.
         # Keep a structure of {file_id: [name, size, sha1]}
@@ -50,19 +57,21 @@ class Client():
         self.in_queue = Queue.Queue()
         
         #initialize messengers
-        self.sender = _Sender(self.rabbit_server, self.out_queue)
-        self.receiver = _Receiver(self, self.rabbit_server, self.in_queue)
+        self.sender = _Sender(self.rabbit_server, self.out_queue, self.uuid)
+        self.receiver = _Receiver(self, self.rabbit_server, self.in_queue,
+                                  self.uuid)
  
         self.received_in_progress = dict()       
         self.requested_file_slice_count = dict()
         self.expect_slices = dict()
-        #TODO: implement reading the client.json
+
 
     def choochoo(self):
         '''
         Pretty much the best method ever
         '''
         subprocess.call("sl")
+
     
     def slice_file(self, filename, slice_number):
         '''
@@ -290,7 +299,7 @@ class _Sender(RabbitObj, threading.Thread):
     Based on Mike's code in db.py
     '''
     
-    def __init__(self, host, queue):
+    def __init__(self, host, queue, user_id):
         '''
         '''
         # Initialize thread
@@ -298,6 +307,7 @@ class _Sender(RabbitObj, threading.Thread):
         self.daemon = True
         
         # Initialize connection parameters
+        self.user_id = user_id
         RabbitObj.__init__(self, **dict(host=host))
         self._queue_name = queue
     
@@ -316,12 +326,10 @@ class _Sender(RabbitObj, threading.Thread):
     def start_sending(self):
         self._pre_msg_send()
         while True:
-            msg = self.output_queue.get()
+            queue, msg = self.output_queue.get()
             # TODO: Process message and send it on
-
-            method, body = msg
             
-            self.send_message(body, routing_key=method.routing_key)
+            self.send_message(msg, routing_key=queue)
 
             #print " [x] Forwarded message to %s : %s" % (self.exchange, 
             #                                                method.routing_key)
@@ -337,7 +345,7 @@ class _Receiver(RabbitObj, threading.Thread):
     Receiver based on Mike's code
     '''
     
-    def __init__(self, parent, host, queue):
+    def __init__(self, parent, host, queue, user_id):
         '''
         '''
         # Initialize thread
@@ -345,6 +353,7 @@ class _Receiver(RabbitObj, threading.Thread):
         self.daemon = True
         
         # Initialize connection parameters
+        self.user_id = user_id
         RabbitObj.__init__(self, **dict(host=host))
         self._queue_name = queue
         self.parent = parent
@@ -385,7 +394,7 @@ class _Receiver(RabbitObj, threading.Thread):
         
         # Perform requested action
         #TODO: add the other operations here
-        if action in ('send_slice'):
+        if action in ('send_slice',):
            
             #TODO: decrypt into var json_object
             
