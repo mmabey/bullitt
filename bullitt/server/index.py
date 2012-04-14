@@ -15,12 +15,13 @@ import threading
 # Third-party libraries
 
 # Local imports
-from bullitt.common.cuffrabbit import RabbitObj
+from bullitt.common import cuffrabbit
 from db import ServerBiz
 
 # Constants
 DEBUG = False
 INFO = True
+VERBOSE = False
 
 
 
@@ -110,7 +111,7 @@ class Server(object):
 
 
 
-class _Listener(RabbitObj, threading.Thread):
+class _Listener(cuffrabbit.RabbitObj, threading.Thread):
     '''
     '''
     
@@ -122,7 +123,7 @@ class _Listener(RabbitObj, threading.Thread):
         self.daemon = True
         
         # Initialize connection parameters
-        RabbitObj.__init__(self, **dict(host=host))
+        cuffrabbit.RabbitObj.__init__(self, **dict(host=host))
         self._queue_name = queue
         self.parent = parent
         self.biz = parent.biz
@@ -131,6 +132,7 @@ class _Listener(RabbitObj, threading.Thread):
     
     def run(self):
         # Connect to MQ server. Should be last thing in this method.
+        if VERBOSE: print "[i] Initiating connection to server..."
         self.init_connection(callback=self.main, queue_name=self._queue_name,
                              exchange_type='direct')
     
@@ -139,6 +141,9 @@ class _Listener(RabbitObj, threading.Thread):
         '''
         '''
         # Start listening to the queue
+        if DEBUG or VERBOSE:
+            print "[i] Starting to listen on %s" % self._queue_name
+        
         self.receive_message(callback=self.process_msg)
         
         # Do anything else that should be asynchronous to listening for messages
@@ -153,6 +158,7 @@ class _Listener(RabbitObj, threading.Thread):
         '''
         # Extract client's ID and check it is valid
         client_id = props.user_id
+        if VERBOSE: print "[.] Received message from %s" % client_id
         
         # Parse message
         job_data = json.loads(body)
@@ -169,6 +175,8 @@ class _Listener(RabbitObj, threading.Thread):
         
         action = job_data['msg_type']
         params = job_data['params']
+        
+        if VERBOSE: print "  Action is %s" % action
         
         # Perform requested action
         if action in ('add_file', 'grant', 'revoke', 'update_complete'):

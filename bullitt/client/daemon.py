@@ -22,9 +22,11 @@ import Queue
 import Crypto
 
 # Local imports
-from bullitt.common.cuffrabbit import RabbitObj
+from bullitt.common import cuffrabbit
 
 # Constants/Globals
+VERBOSE = cuffrabbit.DEBUG = True
+
 
 class Client():
 
@@ -60,6 +62,8 @@ class Client():
         self.sender = _Sender(self.rabbit_server, self.out_queue, self.uuid)
         self.receiver = _Receiver(self, self.rabbit_server, self.in_queue,
                                   self.uuid)
+        self.sender.start()
+        self.receiver.start()
  
         self.received_in_progress = dict()       
         self.requested_file_slice_count = dict()
@@ -294,7 +298,7 @@ class Client():
 
 
 
-class _Sender(RabbitObj, threading.Thread):
+class _Sender(cuffrabbit.RabbitObj, threading.Thread):
     '''
     Based on Mike's code in db.py
     '''
@@ -308,13 +312,14 @@ class _Sender(RabbitObj, threading.Thread):
         
         # Initialize connection parameters
         self.user_id = user_id
-        RabbitObj.__init__(self, **dict(host=host))
+        cuffrabbit.RabbitObj.__init__(self, **dict(host=host))
         self._queue_name = queue
     
+    
     def run(self):
+        if VERBOSE: print "[i] Initiating connection with server..."
         # Connect to MQ server. Should be last thing in this method.
-        self.init_connection(callback=self.main, queue_name=self._queue_name,
-                             exchange_type='direct')
+        self.init_connection(callback=self.main, exchange_type='direct')
     
     
     def main(self):
@@ -322,6 +327,7 @@ class _Sender(RabbitObj, threading.Thread):
         '''
         # Start listening to the queue
         self.start_sending()
+    
     
     def start_sending(self):
         self._pre_msg_send()
@@ -340,7 +346,7 @@ class _Sender(RabbitObj, threading.Thread):
 
 
 #TODO: implement receive
-class _Receiver(RabbitObj, threading.Thread):
+class _Receiver(cuffrabbit.RabbitObj, threading.Thread):
     '''
     Receiver based on Mike's code
     '''
@@ -354,20 +360,22 @@ class _Receiver(RabbitObj, threading.Thread):
         
         # Initialize connection parameters
         self.user_id = user_id
-        RabbitObj.__init__(self, **dict(host=host))
+        cuffrabbit.RabbitObj.__init__(self, **dict(host=host))
         self._queue_name = queue
         self.parent = parent
     
     
     def run(self):
+        if VERBOSE: print "[i] Initiating connection with server..."
         # Connect to MQ server. Should be last thing in this method.
-        self.init_connection(callback=self.main, queue_name=self._queue_name,
+        self.init_connection(callback=self.main, queue_name=self.user_id,
                              exchange_type='direct')
     
     
     def main(self):
         '''
         '''
+        if VERBOSE: print "[i] Listening on queue %s" % self.user_id
         # Start listening to the queue
         self.receive_message(callback=self.process_msg)
         

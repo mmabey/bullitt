@@ -42,9 +42,9 @@ class RabbitObj(object):
         ConnectionParameters object at self.conn_params.
         
         Parameters:
-        - rabbit_server: Hostname or IP Address to connect to, defaults to localhost.
+        - host: Hostname or IP Address to connect to, defaults to localhost.
         - port: TCP port to connect to, defaults to 5672
-        - virtual_host: RabbitMQ virtual rabbit_server to use, defaults to /
+        - virtual_host: RabbitMQ virtual host to use, defaults to /
         - credentials: A instance of a credentials class to authenticate with.
           Defaults to PlainCredentials for the guest user.
         - channel_max: Maximum number of channels to allow, defaults to 0 for 
@@ -149,7 +149,7 @@ class RabbitObj(object):
     def on_connected(self, connection, blocking=False):
         '''
         '''
-        if DEBUG: print self._debug_prefix + "Connected\n  Host: %s\n  Exchange: %s\n" % (self.conn_params.rabbit_server, self.exchange) + self._debug_prefix + "Creating channel...",
+        if DEBUG: print self._debug_prefix + "Connected\n  Host: %s\n  Exchange: %s\n" % (self.conn_params.host, self.exchange) + self._debug_prefix + "Creating channel...",
         # These should always be the same, but just in case...
         if self.connection is not connection:
             # Adopt the new connection object
