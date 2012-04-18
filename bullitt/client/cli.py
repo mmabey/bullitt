@@ -43,7 +43,8 @@ def delete_file():
     sha1_hash = None
     
     daemon.delete_file(file_uuid, sha1_hash)
-    
+
+
 def get_peers():
     '''
     Shows all the other client vms in the system w/ access to a file
@@ -51,20 +52,21 @@ def get_peers():
   
 def client_lookup():
     print daemon.client_lookup()  
-    
+
+
 def grant_rights():
     '''
     grant a user rights on a file
     '''
-    client_lookup()
-    
-    
-    
+    client_lookup()    
+
+
 def revoke_rights():
     '''
     revoke rights on a file
     '''
-    
+
+
 def query_rights():
     '''
     Query rights
@@ -75,7 +77,8 @@ def query_rights():
     file_uuid = None
     
     daemon.query_rights(file_uuid)
-        
+
+
 def list_files():
     '''
     Display list of files which this user
@@ -83,12 +86,14 @@ def list_files():
     '''
     file_dict = daemon.list_files()
     print file_dict
-    
+
+
 def version_downloaded():
     '''
     notify the server of what version you have
     '''
-    
+
+
 def request_file():
     '''
     PULL a file into the local store from peers

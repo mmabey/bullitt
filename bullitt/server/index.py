@@ -17,10 +17,11 @@ import threading
 # Local imports
 from bullitt.common import cuffrabbit
 from db import ServerBiz
+from pika.credentials import PlainCredentials
 
 # Constants
 DEBUG = False
-INFO = True
+INFO = False
 VERBOSE = False
 
 
@@ -54,21 +55,9 @@ class Server(object):
         with open(os.path.join(p, 'gen_config.json')) as fin:
             genconfig = json.load(fin)
         host = genconfig['rabbit_server']
+        exchange = genconfig['server_exchange']
         queue = genconfig['op_queue']
         self.slice_size = genconfig['slice_size']
-        
-        # Operation parameters
-        self.ops = dict(add_file=('id', 'name', 'bytes', 'sha1'),
-                        client_lookup=(), # Do param verification differently
-                        del_file=('id', 'name', 'sha1'),
-                        get_peers=('id',),
-                        grant=('id', 'client', 'read', 'write'),
-                        list_files=(), # No parameters needed
-                        mod_file=('id', 'name', 'bytes', 'sha1', 'prev_sha1'),
-                        query_rights=('id',),
-                        request_file=('id', 'sha1'),
-                        revoke=('id', 'client', 'read', 'write'),
-                        version_downloaded=('id', 'sha1'),)
         
         # Create DB biz object
         self.biz = ServerBiz()
@@ -76,6 +65,7 @@ class Server(object):
         # Create Listener object
         self.signal_queue = Queue.Queue()
         self.listener = _Listener(self, host, queue, self.slice_size)
+        self.listener.exchange = exchange
         self.listener.start()
     
     
@@ -123,21 +113,38 @@ class _Listener(cuffrabbit.RabbitObj, threading.Thread):
         self.daemon = True
         
         # Initialize connection parameters
-        cuffrabbit.RabbitObj.__init__(self, **dict(host=host))
+        self.user_id = 'server'
+        creds = PlainCredentials(self.user_id, 'server')
+        cuffrabbit.RabbitObj.__init__(self, **dict(host=host,
+                                                   credentials=creds))
         self._queue_name = queue
         self.parent = parent
         self.biz = parent.biz
         self.slice_size = slice_size
+        
+        # Operation parameters
+        self.ops = dict(add_file=('id', 'name', 'bytes', 'sha1'),
+                        client_lookup=(), # Do param verification differently
+                        del_file=('id', 'name', 'sha1'),
+                        get_peers=('id',),
+                        grant=('id', 'client', 'read', 'write'),
+                        list_files=(), # No parameters needed
+                        mod_file=('id', 'name', 'bytes', 'sha1', 'prev_sha1'),
+                        query_rights=('id',),
+                        request_file=('id', 'sha1'),
+                        revoke=('id', 'client', 'read', 'write'),
+                        version_downloaded=('id', 'sha1'),)
     
     
     def run(self):
         # Connect to MQ server. Should be last thing in this method.
         if VERBOSE: print "[i] Initiating connection to server..."
         self.init_connection(callback=self.main, queue_name=self._queue_name,
-                             exchange_type='direct')
+                             exchange=self.exchange, exchange_type='direct',
+                             routing_key=self._queue_name)
     
     
-    def main(self):
+    def main(self, stupid):
         '''
         '''
         # Start listening to the queue
@@ -171,23 +178,24 @@ class _Listener(cuffrabbit.RabbitObj, threading.Thread):
                or not self._check_param_keys(job_data['params'],
                                              job_data['msg_type']):
             #TODO: Do something? At least reject the message...
+            self.ack(method.delivery_tag)
             return
         
         action = job_data['msg_type']
         params = job_data['params']
         
-        if VERBOSE: print "  Action is %s" % action
+        if VERBOSE: print "%sAction is '%s'" % ((' ' * 7), action)
         
         # Perform requested action
         if action in ('add_file', 'grant', 'revoke', 'update_complete'):
             # These operations don't need any further processing past the
             # business logic
-            self.biz.__dict__[action](params, client_id)
+            getattr(self.biz, action)(params, client_id)
         else:
-            if action not in dir():
+            if ('_' + action) not in dir(self):
                 raise AttributeError('Method "%s" not found in class Server' % \
                                      action)
-            self.__dict__['_' + action](params, client_id)
+            getattr(self, '_' + action)(params, client_id)
         
         # Acknowledge message
         self.ack(method.delivery_tag)

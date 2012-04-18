@@ -8,24 +8,29 @@ Created on Apr 4, 2012
 '''
 
 # Library imports
-import threading
-import subprocess
-import hashlib
-import uuid #use str(uuid.uuid4())
-import os
-import math
-import json
 import base64
+import hashlib
+import json
+import math
+import os
 import Queue
+import subprocess
+import threading
+import time
+import uuid #use str(uuid.uuid4())
 
 # Third-party libraries
 import Crypto
+from pika.credentials import PlainCredentials
 
 # Local imports
 from bullitt.common import cuffrabbit
 
 # Constants/Globals
-VERBOSE = cuffrabbit.DEBUG = True
+DEBUG = False
+VERBOSE = False
+#cuffrabbit.DEBUG = True
+#cuffrabbit.INFO = True
 
 
 class Client():
@@ -45,7 +50,8 @@ class Client():
             json_data = json.load(fin)
         self.CONST_SLICE_SIZE = json_data["slice_size"]
         self.rabbit_server = str(json_data['rabbit_server'])
-        self.server_queue = json_data['op_queue']
+        self.server_queue = str(json_data['op_queue'])
+        exchange = json_data['server_exchange']
         
         # Keep session keys in this
         self.session_keys = dict(server='')
@@ -56,14 +62,24 @@ class Client():
 
         #initialize queues
         self.out_queue = Queue.Queue()
-        self.in_queue = Queue.Queue()
+        self.op_resp_queue = Queue.Queue()
+        self.file_slice_queue = Queue.Queue()
         
         #initialize messengers
         self.sender = _Sender(self.rabbit_server, self.out_queue, self.uuid)
-        self.receiver = _Receiver(self, self.rabbit_server, self.in_queue,
-                                  self.uuid)
+        self.sender.exchange = exchange
+        self.receiver = _Receiver(self, self.rabbit_server, self.uuid,
+                                  self.op_resp_queue, self.file_slice_queue)
+        self.receiver.exchange = exchange
+        
         self.sender.start()
         self.receiver.start()
+        
+        if VERBOSE:
+            print "Sender thread %s alive" % (self.sender.isAlive() \
+                                              and 'IS' or 'is NOT')
+            print "Receiver thread %s alive" % (self.receiver.isAlive() \
+                                                and 'IS' or 'is NOT')
  
         self.received_in_progress = dict()       
         self.requested_file_slice_count = dict()
@@ -125,13 +141,15 @@ class Client():
     
         outhandle.close()
 
+
     def encrypt_data(self, data, key):
         '''
         Encrypt some data using a given key
         '''
         #TODO: write me
         return data
-        
+    
+    
     def decrypt_slice(self, other_party):
         '''
         Decrypt slice with private key
@@ -214,8 +232,14 @@ class Client():
         params = locals()
         params.pop('msg_type')
         params.pop('self')
+        to_pop = []
+        
+        # Remove any unnecessary keys (None value)
         for key in params:
-            if key is None: params.pop(key)
+            # Can't change the dictionary while iterating over it
+            if params[key] is None: to_pop.append(key)
+        for key in to_pop: 
+            params.pop(key)
         body = self.encrypt_data(json.dumps(dict(msg_type=msg_type,
                                                  params=params)),
                                  self.session_keys['server'])
@@ -279,9 +303,23 @@ class Client():
     
     def list_files(self):
         '''
-        Query for a list of files user has access to
+        Query for a list of files user has access to and return it.
         '''
-        self.send_op_msg('list_files')
+        while True:
+            self.send_op_msg('list_files')
+            try:
+                props, action, params = self.get_op_resp()
+            except Queue.Empty:
+                print "Unable to retrieve message. Response timed out."
+                break
+            #TODO: Do something with the returned result before returning?
+            if action == 'files_list':
+                return params['files']
+            # This is not the action you are looking for. Move along.
+            if DEBUG:
+                print "Potentially entering (or already in) infinite loop... " \
+                      "Can't stop..."
+            self.oops((props, action, params))
     
     
     def version_downloaded(self, file_uuid, sha1_hash):
@@ -295,6 +333,25 @@ class Client():
                             math.ceil(bytes / float(client.CONST_SLICE_SIZE)))
         
         self.expect_slices[file_uuid] = dict()
+    
+    
+    def get_op_resp(self):
+        '''
+        Block until a response for an operation is received.  Use with caution!
+        '''
+        resp = self.op_resp_queue.get(timeout=5)
+        self.op_resp_queue.task_done()
+        return resp
+    
+    
+    def oops(self, val):
+        '''
+        Put something back on the queue that wasn't supposed to leave it.
+        
+        Could be the entrance to an infinite loop...  Oops.
+        '''
+        self.op_resp_queue(val)
+        time.sleep(1)
 
 
 
@@ -312,33 +369,28 @@ class _Sender(cuffrabbit.RabbitObj, threading.Thread):
         
         # Initialize connection parameters
         self.user_id = user_id
-        cuffrabbit.RabbitObj.__init__(self, **dict(host=host))
-        self._queue_name = queue
+        creds = PlainCredentials(self.user_id, 'pika')
+        cuffrabbit.RabbitObj.__init__(self, **dict(host=host,
+                                                   credentials=creds))
+        self.output_queue = queue
     
     
     def run(self):
-        if VERBOSE: print "[i] Initiating connection with server..."
+        if VERBOSE: print "[i] Initiating sender connection with server..."
         # Connect to MQ server. Should be last thing in this method.
-        self.init_connection(callback=self.main, exchange_type='direct')
+        self.init_connection(callback=self.start_sending,
+                             exchange=self.exchange, exchange_type='direct',
+                             routing_key=self.user_id)
     
     
-    def main(self):
-        '''
-        '''
-        # Start listening to the queue
-        self.start_sending()
-    
-    
-    def start_sending(self):
-        self._pre_msg_send()
+    def start_sending(self, stupid):
         while True:
+            if VERBOSE: print " :) Ready to send messages"
             queue, msg = self.output_queue.get()
-            # TODO: Process message and send it on
-            
+            if DEBUG: 
+                print "Sending message to '%s' the following:\n%r" % (queue,
+                                                                      msg)
             self.send_message(msg, routing_key=queue)
-
-            #print " [x] Forwarded message to %s : %s" % (self.exchange, 
-            #                                                method.routing_key)
                                                              
             # Signal the queue that the message has been sent
             self.output_queue.task_done()
@@ -351,7 +403,7 @@ class _Receiver(cuffrabbit.RabbitObj, threading.Thread):
     Receiver based on Mike's code
     '''
     
-    def __init__(self, parent, host, queue, user_id):
+    def __init__(self, parent, host, user_id, op_resp_queue, file_slice_queue):
         '''
         '''
         # Initialize thread
@@ -360,22 +412,26 @@ class _Receiver(cuffrabbit.RabbitObj, threading.Thread):
         
         # Initialize connection parameters
         self.user_id = user_id
-        cuffrabbit.RabbitObj.__init__(self, **dict(host=host))
-        self._queue_name = queue
+        creds = PlainCredentials(self.user_id, 'pika')
+        cuffrabbit.RabbitObj.__init__(self, **dict(host=host,
+                                                   credentials=creds))
+        self.op_resp_queue = op_resp_queue
+        self.file_slice_queue = file_slice_queue
         self.parent = parent
     
     
     def run(self):
-        if VERBOSE: print "[i] Initiating connection with server..."
+        if VERBOSE: print "[i] Initiating receiver connection with server..."
         # Connect to MQ server. Should be last thing in this method.
         self.init_connection(callback=self.main, queue_name=self.user_id,
-                             exchange_type='direct')
+                             exchange=self.exchange, exchange_type='direct',
+                             routing_key=self.user_id)
     
     
-    def main(self):
+    def main(self, stupid):
         '''
         '''
-        if VERBOSE: print "[i] Listening on queue %s" % self.user_id
+        if VERBOSE: print " :) Listening on queue %s" % self.user_id
         # Start listening to the queue
         self.receive_message(callback=self.process_msg)
         
@@ -390,6 +446,9 @@ class _Receiver(cuffrabbit.RabbitObj, threading.Thread):
         received from a client, 
         '''
         # Extract client's ID and check it is valid
+        # MIKE: If the server originated this message, the client ID will not
+        # be "valid" and will likely be None. What were you trying to do here 
+        # exactly?
         client_id = props.user_id
         
         #TODO: decrypt slice message
@@ -399,10 +458,11 @@ class _Receiver(cuffrabbit.RabbitObj, threading.Thread):
         
         action = job_data['msg_type']
         params = job_data['params']
+        if VERBOSE: print "Got message: '%s'\n%r" % (action, params)
         
         # Perform requested action
         #TODO: add the other operations here
-        if action in ('send_slice',):
+        if action == 'send_slice':
            
             #TODO: decrypt into var json_object
             
@@ -421,7 +481,7 @@ class _Receiver(cuffrabbit.RabbitObj, threading.Thread):
                 self.parent.reassemble_slices(handle, id)
                 del self.parent.received_in_progress[id]
         else:
-            print "I have no idea what I'm doing (unexpect msg error)"
+            self.op_resp_queue.put((props, action, params))
         
         # Acknowledge message
         self.ack(method.delivery_tag)
