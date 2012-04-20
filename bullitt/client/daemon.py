@@ -21,6 +21,8 @@ import uuid #use str(uuid.uuid4())
 
 # Third-party libraries
 import Crypto
+import pika
+
 from pika.credentials import PlainCredentials
 
 # Local imports
@@ -29,6 +31,7 @@ from bullitt.common import cuffrabbit
 # Constants/Globals
 DEBUG = False
 VERBOSE = False
+SESSION_KEY_LENGTH = 1024
 #cuffrabbit.DEBUG = True
 #cuffrabbit.INFO = True
 
@@ -38,7 +41,9 @@ class Client():
     def __init__(self):
         #read slice size from our config json
         client_dir = os.path.dirname(os.path.realpath(__file__))
-        with open(os.path.join('/home/vlab/keypair', 'client.json')) as fin:
+        #TODO: return this line to normal
+        #with open(os.path.join('/home/vlab/keypair', 'client.json')) as fin:
+        with open(os.path.join('./setup', 'client1.json')) as fin:
             cconfig = json.load(fin)
             self.uuid = cconfig['uuid']
             self.ipaddr = cconfig['ip']
@@ -142,15 +147,20 @@ class Client():
         outhandle.close()
 
 
-    def encrypt_data(self, data, key):
+    def encrypt_data(self, data, key, encryption_type="RSA"):
         '''
         Encrypt some data using a given key
         '''
         #TODO: write me
         return data
     
+    def encrypt_data_rsa(self, data, key):
+        pass
     
-    def decrypt_slice(self, other_party):
+    def encrypt_data_aes(self, data, key):
+        pass
+    
+    def decrypt_data(self, data, other_party):
         '''
         Decrypt slice with private key
         '''
@@ -159,24 +169,35 @@ class Client():
         #In which case this will be called from the receive method
         #instead of the reassembly 
 
-        #TODO: write it
         try:
             key = self.session_keys[other_party]
+            return self.decrypt_data_aes(key)
         except KeyError:
+            decrypted = self.decrypt_data_rsa(data)
+            #TODO: finish this logic - right now any time a private key
+            #gets made it will create a new session key - that's wrong
             self.create_session_key(other_party)
             key = self.session_keys[other_party]
         
-        #TODO: Use key to decrypt message
-
+    def decrypt_data_aes(self, data, key):
+        pass
+    
+    def decrypt_data_rsa(self, data):
+        pass
 
     def create_session_key(self, other_party):
         '''
         Create a session key
-        '''
-        #TODO: grab a crypto random number from Crypto
-        self.session_keys[other_party] = None
+        '''       
+        from Crypto import Random
+        
+        #grab the RNG
+        rnd = Random.OSRNG.posix.new()
+        #Get a key
+        key = rnd.read(SESSION_KEY_LENGTH)
+        #store it in the list
+        self.session_keys[other_party] = key
     
-
     def send_slice(self, slice, file_uuid, slice_num):
         '''
         Send slice to a vm
@@ -210,9 +231,10 @@ class Client():
         self.out_queue.put(json_object)
     
     
+    #TODO: modified to present correlation_id
     def send_op_msg(self, msg_type, bytes=None, client=None, id=None,
                     name=None, num=None, prev_sha1=None, read=None, sha1=None,
-                    slice=None, write=None):
+                    slice=None, write=None, correlation_id=None):
         '''
         Send a generic client operation message to the server.
         
@@ -228,10 +250,13 @@ class Client():
         sha1 = SHA1 of the current version of the file
         slice = The data of the slice
         write = True/False/None write permission
+        session_uuid = uuid used for identifying session keys
+        key = session key
         '''
         params = locals()
         params.pop('msg_type')
         params.pop('self')
+        params.pop('correlation_id') #TODO: added correlation_id
         to_pop = []
         
         # Remove any unnecessary keys (None value)
@@ -243,7 +268,7 @@ class Client():
         body = self.encrypt_data(json.dumps(dict(msg_type=msg_type,
                                                  params=params)),
                                  self.session_keys['server'])
-        self.out_queue.put((self.server_queue, body))
+        self.out_queue.put((self.server_queue, body, correlation_id))
     
         
     def add_or_mod_file(self, filename, prev_sha1=None, file_uuid=None):
@@ -326,8 +351,12 @@ class Client():
         self.send_op_msg('version_downloaded', id=file_uuid, sha1=sha1_hash)
     
     
-    def request_file(self, file_uuid, sha1_hash, bytes):
-        self.send_op_msg('request_file', id=str(file_uuid), sha1=sha1_hash)
+    def request_file(self, file_uuid, sha1_hash, bytes):     
+        
+        session_id = uuid.uuid4()
+         
+        self.send_op_msg('request_file', id=str(file_uuid), sha1=sha1_hash, \
+                         correlation_id=session_id)
         
         self.requested_file_slice_count[file_uuid] = int(
                             math.ceil(bytes / float(client.CONST_SLICE_SIZE)))
@@ -386,11 +415,12 @@ class _Sender(cuffrabbit.RabbitObj, threading.Thread):
     def start_sending(self, stupid):
         while True:
             if VERBOSE: print " :) Ready to send messages"
-            queue, msg = self.output_queue.get()
+            queue, msg, correlation_id = self.output_queue.get()
             if DEBUG: 
                 print "Sending message to '%s' the following:\n%r" % (queue,
                                                                       msg)
-            self.send_message(msg, routing_key=queue)
+            self.send_message(msg, routing_key=queue, \
+                              correlation_id=self.correlation_id)
                                                              
             # Signal the queue that the message has been sent
             self.output_queue.task_done()
@@ -492,12 +522,14 @@ if __name__ == '__main__':
     Purely a testing method - should be removed before deploying
     '''
     client = Client()
-    client.add_or_mod_file("C:/Users/Justin/Desktop/trying/Paper-5(1).pdf")
+    
+    client.create_session_key("Bob")
+    #client.add_or_mod_file("C:/Users/Justin/Desktop/trying/Paper-5(1).pdf")
     
     #num_slices = int(math.ceil(os.path.getsize("C:/Users/Justin/Desktop/trying/Paper-5(1).pdf") / float(client.CONST_SLICE_SIZE)))
     #slices = list()
     #for x in range(num_slices):
     #    slices.insert(x, client.slice_file("C:/Users/Justin/Desktop/trying/Paper-5(1).pdf", x))
-    client.send_slice(client.slice_file("C:/Users/Justin/Desktop/trying/Paper-5(1).pdf", 10), uuid.uuid4(), 10)
+    #client.send_slice(client.slice_file("C:/Users/Justin/Desktop/trying/Paper-5(1).pdf", 10), uuid.uuid4(), 10)
     #client.reassemble_slices(slices, "C:/Users/Justin/Desktop/trying/copy.pdf")
     pass

@@ -178,7 +178,9 @@ class RabbitObj(object):
                                       callback=self.init_callback)
 
 
-    def send_message(self, body, routing_key=None):
+    #TODO: Mike, I added some correlation_id stuff here.
+    #      Using this TODO as a marker so you can find it
+    def send_message(self, body, routing_key=None, correlation_id=None):
         '''
         Sends a message to the exchange on the server to which a connection 
         has already been established. Both parameters 'body' and 'routing_key' 
@@ -200,6 +202,7 @@ class RabbitObj(object):
         # flag is set)
         props = pika.BasicProperties(delivery_mode=2, # Persistent messages
                                      user_id=self.user_id,
+                                     correlation_id=self.correlation_id
                                      )
         if DEBUG: 
             print "[x] Sending message to %s" % (routing_key)
