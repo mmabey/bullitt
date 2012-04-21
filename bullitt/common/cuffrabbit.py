@@ -284,28 +284,3 @@ class RabbitObj(object):
 
     def process_msg(self, channel, method, header, body):
         raise NotImplementedError
-
-
-
-class PendSend(object):
-    '''
-    '''
-
-    class _QueueChecker(threading.Thread):
-        def __init__(self, output_queue):
-            pass
-
-    def __init__(self):
-        pass
-
-    def get_bindings(self, host, exchange, queue, routing_key):
-        # TODO: Check that all parameters are strings
-        url = "http://guest:guest@localhost:55672/api/bindings"
-        fin = urllib.urlopen(url)
-        result = json.loads(fin.read())
-        fin.close()
-        for r in result:
-            if r['source'] == 'cuff_link_exchange' and r['destination'] == \
-                    'cuff_link_queue' and r['routing_key'] == '#':
-                return True
-        return False
