@@ -202,7 +202,7 @@ class RabbitObj(object):
         # flag is set)
         props = pika.BasicProperties(delivery_mode=2, # Persistent messages
                                      user_id=self.user_id,
-                                     correlation_id=self.correlation_id
+                                     correlation_id=correlation_id
                                      )
         if DEBUG: 
             print "[x] Sending message to %s" % (routing_key)
