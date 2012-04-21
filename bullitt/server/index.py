@@ -51,6 +51,7 @@ class Server(object):
         p = os.path.dirname(os.path.realpath(__file__))
         with open(os.path.join(p, 'server_config.json')) as fin:
             config = json.load(fin)
+        config  # Shut up the stupid eclipse warning
         p = os.path.realpath(os.path.join(p, '..', 'common'))
         with open(os.path.join(p, 'gen_config.json')) as fin:
             genconfig = json.load(fin)
@@ -177,8 +178,8 @@ class _Listener(cuffrabbit.RabbitObj, threading.Thread):
                or not job_data['msg_type'] in self.ops \
                or not self._check_param_keys(job_data['params'],
                                              job_data['msg_type']):
-            #TODO: Do something? At least reject the message...
-            self.ack(method.delivery_tag)
+            #not necessary for this version... TODO Do something? At least reject the message...
+            self.ack(method.delivery_tag) # Oh well... we'll just acknowledge it
             return
         
         action = job_data['msg_type']
@@ -228,8 +229,8 @@ class _Listener(cuffrabbit.RabbitObj, threading.Thread):
         file_id = params['file_id']
         sha1 = params['sha1']
         if  sha1 != self.biz.get_file_version(file_id):
-            #TODO: Notify client that delete failed because the specified version is out of date
-            pass
+            #not necessary for this version... TODO ? Notify client that delete failed because the specified version is out of date
+            return
         peers = self.biz.get_file_peers(file_id, client_id, 'all',
                                         get_pub_key=False)
         if peers:
@@ -305,6 +306,7 @@ class _Listener(cuffrabbit.RabbitObj, threading.Thread):
                                   routing_key=p['user_id'])
                 slices_sent += 1
                 if slices_sent >= num_slices: break
+                n # Shut up the stupid eclipse warning
 
 
 

@@ -143,8 +143,13 @@ class ServerBiz(object):
     def get_file_owner(self, file_id, client_id=None):
         '''
         For a given file, return the UUID of the owner client.
+        
+        If a client_id is specified, return if the file's owner is that client.
         '''
-        owner_id = self.db.select_file(file_id, 'owner_id')['owner_id']
+        ret = self.db.select_file(file_id, 'owner_id')
+        if not ret: return None
+        
+        owner_id = ret['owner_id']
         if client_id == None:
             return owner_id
         return owner_id == client_id
@@ -184,13 +189,6 @@ class ServerBiz(object):
         return self.db.select_user_files(client_id)
     
     
-    def publish_update(self, file_id, checksum):
-        '''
-        Announce the given file has been updated to the new checksum.
-        '''
-        pass#TODO:
-    
-    
     # CLIENT OPERATION METHODS BEGIN HERE
     # -----------------------------------
     #
@@ -225,9 +223,8 @@ class ServerBiz(object):
         # Check that the SHA1 matches the current version.
         if self.can_update(file_id, client_id) \
                 and params['prev_sha1'] == self.get_file_version(file_id):
-            self.db.update_file(file_id=file_id,
-                                sha1=sha1,
-                                size=size)
+            return self.db.update_file(file_id=file_id, sha1=sha1, size=size)
+        return False
     
     
     def del_file(self, params, client_id): # INDEX
@@ -238,7 +235,9 @@ class ServerBiz(object):
         sha1 = params['sha1']
         if self.get_file_owner(file_id, client_id) and \
                 self.get_file_version(file_id) == sha1:
-            self.db.delete_file(file_id)
+            delfile, delperm = self.db.delete_file(file_id)
+            return bool(delfile and delperm)
+        return False
     
     
     def grant(self, params, client_id): # Biz only
@@ -258,7 +257,7 @@ class ServerBiz(object):
         if write == False: write = None
         
         if self.get_file_owner(file_id, client_id) and \
-                self.client_exists(client_id):
+                self.client_exists(grantee):
             params2 = dict(file_id=file_id,
                            client_id=grantee,
                            read=read,
@@ -632,8 +631,6 @@ class BullittSQL(object):
         '''
         if (read, write) == (False, False):
             raise ValueError('Parameter read or write must be True or 1.')
-        
-        #TODO: Check to see if the client_id value is valid first
         
         pvals = dict(file_id=file_id,
                      user_id=client_id,
