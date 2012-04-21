@@ -10,26 +10,11 @@ Created on Apr 2, 2012
 # Third-party libraries
 
 # Local imports
-from index import Server
+import index
 
 # Constants/Globals
 DEBUG = False
-SERVER = Server()
-
-
-def print_main_menu():
-    '''
-    Prints main CLI menu for the server.
-    '''
-    print
-    print "Options:"
-    print "--------"
-    print
-    print "  1. Add a client"
-    print "  2. View list of clients"
-    print "  3. Delete a client"
-    print "  Q or Ctrl+C to exit"
-    print
+SERVER = index.Server()
 
 
 def view_clients():
@@ -127,6 +112,22 @@ def del_client():
         if DEBUG: print '\n%r\n' % res
 
 
+def print_main_menu():
+    '''
+    Prints main CLI menu for the server.
+    '''
+    print
+    print "Options:"
+    print "--------"
+    print
+    print "  1. Add a client"
+    print "  2. View list of clients"
+    print "  3. Delete a client"
+    print "  4. Show server activity"
+    print "  Q or Ctrl+C to exit"
+    print
+
+
 def main():
     title = "Bullitt: The Collaborative Data Sharing System"
     print "\n%s\n%s\n" % (title.center(79), ('-' * len(title)).center(79))
@@ -136,6 +137,7 @@ def main():
         try:
             resp = raw_input(" > ")
         except (EOFError, KeyboardInterrupt):
+            print
             break
         print
         if len(resp) and resp.lower()[0] == 'q':
@@ -146,6 +148,19 @@ def main():
             view_clients()
         elif resp == '3':
             del_client()
+        elif resp == '4':
+            prevV = index.VERBOSE
+            prevD = index.cuffrabbit.DEBUG
+            index.VERBOSE = index.cuffrabbit.DEBUG = True
+            print "\nPress Ctrl+C to return to the main menu."
+            while True:
+                try:
+                    raw_input()
+                except KeyboardInterrupt:
+                    print
+                    break
+            index.VERBOSE = prevV
+            index.cuffrabbit.DEBUG = prevD
     print
 
 

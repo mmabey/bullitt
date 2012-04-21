@@ -8,30 +8,42 @@ Created on Apr 4, 2012
 '''
 
 # Library imports
-import threading
-import subprocess
-import hashlib
-import uuid #use str(uuid.uuid4())
-import os
-import math
-import json
 import base64
+import hashlib
+import json
+import math
+import os
 import Queue
+import subprocess
+import threading
+import time
+import uuid #use str(uuid.uuid4())
 
 # Third-party libraries
 import Crypto
+import pika
+
+from pika.credentials import PlainCredentials
 
 # Local imports
-from bullitt.common.cuffrabbit import RabbitObj
+from bullitt.common import cuffrabbit
 
 # Constants/Globals
+DEBUG = False
+VERBOSE = False
+SESSION_KEY_LENGTH = 1024
+#cuffrabbit.DEBUG = True
+#cuffrabbit.INFO = True
+
 
 class Client():
 
     def __init__(self):
         #read slice size from our config json
         client_dir = os.path.dirname(os.path.realpath(__file__))
-        with open(os.path.join('/home/vlab/keypair', 'client.json')) as fin:
+        #TODO: return this line to normal
+        #with open(os.path.join('/home/vlab/keypair', 'client.json')) as fin:
+        with open(os.path.join('./setup', 'client1.json')) as fin:
             cconfig = json.load(fin)
             self.uuid = cconfig['uuid']
             self.ipaddr = cconfig['ip']
@@ -43,7 +55,8 @@ class Client():
             json_data = json.load(fin)
         self.CONST_SLICE_SIZE = json_data["slice_size"]
         self.rabbit_server = str(json_data['rabbit_server'])
-        self.server_queue = json_data['op_queue']
+        self.server_queue = str(json_data['op_queue'])
+        exchange = json_data['server_exchange']
         
         # Keep session keys in this
         self.session_keys = dict(server='')
@@ -54,12 +67,24 @@ class Client():
 
         #initialize queues
         self.out_queue = Queue.Queue()
-        self.in_queue = Queue.Queue()
+        self.op_resp_queue = Queue.Queue()
+        self.file_slice_queue = Queue.Queue()
         
         #initialize messengers
         self.sender = _Sender(self.rabbit_server, self.out_queue, self.uuid)
-        self.receiver = _Receiver(self, self.rabbit_server, self.in_queue,
-                                  self.uuid)
+        self.sender.exchange = exchange
+        self.receiver = _Receiver(self, self.rabbit_server, self.uuid,
+                                  self.op_resp_queue, self.file_slice_queue)
+        self.receiver.exchange = exchange
+        
+        self.sender.start()
+        self.receiver.start()
+        
+        if VERBOSE:
+            print "Sender thread %s alive" % (self.sender.isAlive() \
+                                              and 'IS' or 'is NOT')
+            print "Receiver thread %s alive" % (self.receiver.isAlive() \
+                                                and 'IS' or 'is NOT')
  
         self.received_in_progress = dict()       
         self.requested_file_slice_count = dict()
@@ -121,14 +146,31 @@ class Client():
     
         outhandle.close()
 
-    def encrypt_data(self, data, key):
+
+    def encrypt_data(self, data, key, encryption_type="RSA"):
         '''
         Encrypt some data using a given key
         '''
         #TODO: write me
-        return data
+        if encryption_type == "RSA":
+            ciphertext = self.encrypt_data_rsa(data, key)
+        elif encryption_type == "AES":
+            ciphertext = self.encrypt_data_aes(data, key)
+        else:
+            print "I have no idea what you're doing :):):):)"
         
-    def decrypt_slice(self, other_party):
+        return ciphertext
+    
+    def encrypt_data_rsa(self, data, key):
+        from Crypto.PublicKey import RSA
+        
+        encryptor = RSA.importKey(key)
+        #TODO: finish me
+    
+    def encrypt_data_aes(self, data, key):
+        pass
+    
+    def decrypt_data(self, data, other_party):
         '''
         Decrypt slice with private key
         '''
@@ -137,24 +179,35 @@ class Client():
         #In which case this will be called from the receive method
         #instead of the reassembly 
 
-        #TODO: write it
         try:
             key = self.session_keys[other_party]
+            return self.decrypt_data_aes(key)
         except KeyError:
+            decrypted = self.decrypt_data_rsa(data)
+            #TODO: finish this logic - right now any time a private key
+            #gets made it will create a new session key - that's wrong
             self.create_session_key(other_party)
             key = self.session_keys[other_party]
         
-        #TODO: Use key to decrypt message
-
+    def decrypt_data_aes(self, data, key):
+        pass
+    
+    def decrypt_data_rsa(self, data):
+        pass
 
     def create_session_key(self, other_party):
         '''
         Create a session key
-        '''
-        #TODO: grab a crypto random number from Crypto
-        self.session_keys[other_party] = None
+        '''       
+        from Crypto import Random
+        
+        #grab the RNG
+        rnd = Random.OSRNG.posix.new()
+        #Get a key
+        key = rnd.read(SESSION_KEY_LENGTH)
+        #store it in the list
+        self.session_keys[other_party] = key
     
-
     def send_slice(self, slice, file_uuid, slice_num):
         '''
         Send slice to a vm
@@ -188,9 +241,10 @@ class Client():
         self.out_queue.put(json_object)
     
     
+    #TODO: modified to present correlation_id
     def send_op_msg(self, msg_type, bytes=None, client=None, id=None,
                     name=None, num=None, prev_sha1=None, read=None, sha1=None,
-                    slice=None, write=None):
+                    slice=None, write=None, correlation_id=None):
         '''
         Send a generic client operation message to the server.
         
@@ -206,16 +260,25 @@ class Client():
         sha1 = SHA1 of the current version of the file
         slice = The data of the slice
         write = True/False/None write permission
+        session_uuid = uuid used for identifying session keys
+        key = session key
         '''
         params = locals()
         params.pop('msg_type')
         params.pop('self')
+        params.pop('correlation_id') #TODO: added correlation_id
+        to_pop = []
+        
+        # Remove any unnecessary keys (None value)
         for key in params:
-            if key is None: params.pop(key)
+            # Can't change the dictionary while iterating over it
+            if params[key] is None: to_pop.append(key)
+        for key in to_pop: 
+            params.pop(key)
         body = self.encrypt_data(json.dumps(dict(msg_type=msg_type,
                                                  params=params)),
                                  self.session_keys['server'])
-        self.out_queue.put((self.server_queue, body))
+        self.out_queue.put((self.server_queue, body, correlation_id))
     
         
     def add_or_mod_file(self, filename, prev_sha1=None, file_uuid=None):
@@ -275,26 +338,63 @@ class Client():
     
     def list_files(self):
         '''
-        Query for a list of files user has access to
+        Query for a list of files user has access to and return it.
         '''
-        self.send_op_msg('list_files')
+        while True:
+            self.send_op_msg('list_files')
+            try:
+                props, action, params = self.get_op_resp()
+            except Queue.Empty:
+                print "Unable to retrieve message. Response timed out."
+                break
+            #TODO: Do something with the returned result before returning?
+            if action == 'files_list':
+                return params['files']
+            # This is not the action you are looking for. Move along.
+            if DEBUG:
+                print "Potentially entering (or already in) infinite loop... " \
+                      "Can't stop..."
+            self.oops((props, action, params))
     
     
     def version_downloaded(self, file_uuid, sha1_hash):
         self.send_op_msg('version_downloaded', id=file_uuid, sha1=sha1_hash)
     
     
-    def request_file(self, file_uuid, sha1_hash, bytes):
-        self.send_op_msg('request_file', id=str(file_uuid), sha1=sha1_hash)
+    def request_file(self, file_uuid, sha1_hash, bytes):     
+        
+        session_id = uuid.uuid4()
+         
+        self.send_op_msg('request_file', id=str(file_uuid), sha1=sha1_hash, \
+                         correlation_id=session_id)
         
         self.requested_file_slice_count[file_uuid] = int(
                             math.ceil(bytes / float(client.CONST_SLICE_SIZE)))
         
         self.expect_slices[file_uuid] = dict()
+    
+    
+    def get_op_resp(self):
+        '''
+        Block until a response for an operation is received.  Use with caution!
+        '''
+        resp = self.op_resp_queue.get(timeout=5)
+        self.op_resp_queue.task_done()
+        return resp
+    
+    
+    def oops(self, val):
+        '''
+        Put something back on the queue that wasn't supposed to leave it.
+        
+        Could be the entrance to an infinite loop...  Oops.
+        '''
+        self.op_resp_queue(val)
+        time.sleep(1)
 
 
 
-class _Sender(RabbitObj, threading.Thread):
+class _Sender(cuffrabbit.RabbitObj, threading.Thread):
     '''
     Based on Mike's code in db.py
     '''
@@ -308,31 +408,29 @@ class _Sender(RabbitObj, threading.Thread):
         
         # Initialize connection parameters
         self.user_id = user_id
-        RabbitObj.__init__(self, **dict(host=host))
-        self._queue_name = queue
+        creds = PlainCredentials(self.user_id, 'pika')
+        cuffrabbit.RabbitObj.__init__(self, **dict(host=host,
+                                                   credentials=creds))
+        self.output_queue = queue
+    
     
     def run(self):
+        if VERBOSE: print "[i] Initiating sender connection with server..."
         # Connect to MQ server. Should be last thing in this method.
-        self.init_connection(callback=self.main, queue_name=self._queue_name,
-                             exchange_type='direct')
+        self.init_connection(callback=self.start_sending,
+                             exchange=self.exchange, exchange_type='direct',
+                             routing_key=self.user_id)
     
     
-    def main(self):
-        '''
-        '''
-        # Start listening to the queue
-        self.start_sending()
-    
-    def start_sending(self):
-        self._pre_msg_send()
+    def start_sending(self, stupid):
         while True:
-            queue, msg = self.output_queue.get()
-            # TODO: Process message and send it on
-            
-            self.send_message(msg, routing_key=queue)
-
-            #print " [x] Forwarded message to %s : %s" % (self.exchange, 
-            #                                                method.routing_key)
+            if VERBOSE: print " :) Ready to send messages"
+            queue, msg, correlation_id = self.output_queue.get()
+            if DEBUG: 
+                print "Sending message to '%s' the following:\n%r" % (queue,
+                                                                      msg)
+            self.send_message(msg, routing_key=queue, \
+                              correlation_id=self.correlation_id)
                                                              
             # Signal the queue that the message has been sent
             self.output_queue.task_done()
@@ -340,12 +438,12 @@ class _Sender(RabbitObj, threading.Thread):
 
 
 #TODO: implement receive
-class _Receiver(RabbitObj, threading.Thread):
+class _Receiver(cuffrabbit.RabbitObj, threading.Thread):
     '''
     Receiver based on Mike's code
     '''
     
-    def __init__(self, parent, host, queue, user_id):
+    def __init__(self, parent, host, user_id, op_resp_queue, file_slice_queue):
         '''
         '''
         # Initialize thread
@@ -354,20 +452,26 @@ class _Receiver(RabbitObj, threading.Thread):
         
         # Initialize connection parameters
         self.user_id = user_id
-        RabbitObj.__init__(self, **dict(host=host))
-        self._queue_name = queue
+        creds = PlainCredentials(self.user_id, 'pika')
+        cuffrabbit.RabbitObj.__init__(self, **dict(host=host,
+                                                   credentials=creds))
+        self.op_resp_queue = op_resp_queue
+        self.file_slice_queue = file_slice_queue
         self.parent = parent
     
     
     def run(self):
+        if VERBOSE: print "[i] Initiating receiver connection with server..."
         # Connect to MQ server. Should be last thing in this method.
-        self.init_connection(callback=self.main, queue_name=self._queue_name,
-                             exchange_type='direct')
+        self.init_connection(callback=self.main, queue_name=self.user_id,
+                             exchange=self.exchange, exchange_type='direct',
+                             routing_key=self.user_id)
     
     
-    def main(self):
+    def main(self, stupid):
         '''
         '''
+        if VERBOSE: print " :) Listening on queue %s" % self.user_id
         # Start listening to the queue
         self.receive_message(callback=self.process_msg)
         
@@ -382,6 +486,9 @@ class _Receiver(RabbitObj, threading.Thread):
         received from a client, 
         '''
         # Extract client's ID and check it is valid
+        # MIKE: If the server originated this message, the client ID will not
+        # be "valid" and will likely be None. What were you trying to do here 
+        # exactly?
         client_id = props.user_id
         
         #TODO: decrypt slice message
@@ -391,10 +498,11 @@ class _Receiver(RabbitObj, threading.Thread):
         
         action = job_data['msg_type']
         params = job_data['params']
+        if VERBOSE: print "Got message: '%s'\n%r" % (action, params)
         
         # Perform requested action
         #TODO: add the other operations here
-        if action in ('send_slice',):
+        if action == 'send_slice':
            
             #TODO: decrypt into var json_object
             
@@ -413,7 +521,7 @@ class _Receiver(RabbitObj, threading.Thread):
                 self.parent.reassemble_slices(handle, id)
                 del self.parent.received_in_progress[id]
         else:
-            print "I have no idea what I'm doing (unexpect msg error)"
+            self.op_resp_queue.put((props, action, params))
         
         # Acknowledge message
         self.ack(method.delivery_tag)
@@ -424,12 +532,14 @@ if __name__ == '__main__':
     Purely a testing method - should be removed before deploying
     '''
     client = Client()
-    client.add_or_mod_file("C:/Users/Justin/Desktop/trying/Paper-5(1).pdf")
+    
+    client.create_session_key("Bob")
+    #client.add_or_mod_file("C:/Users/Justin/Desktop/trying/Paper-5(1).pdf")
     
     #num_slices = int(math.ceil(os.path.getsize("C:/Users/Justin/Desktop/trying/Paper-5(1).pdf") / float(client.CONST_SLICE_SIZE)))
     #slices = list()
     #for x in range(num_slices):
     #    slices.insert(x, client.slice_file("C:/Users/Justin/Desktop/trying/Paper-5(1).pdf", x))
-    client.send_slice(client.slice_file("C:/Users/Justin/Desktop/trying/Paper-5(1).pdf", 10), uuid.uuid4(), 10)
+    #client.send_slice(client.slice_file("C:/Users/Justin/Desktop/trying/Paper-5(1).pdf", 10), uuid.uuid4(), 10)
     #client.reassemble_slices(slices, "C:/Users/Justin/Desktop/trying/copy.pdf")
     pass
