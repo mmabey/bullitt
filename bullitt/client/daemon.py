@@ -152,10 +152,20 @@ class Client():
         Encrypt some data using a given key
         '''
         #TODO: write me
-        return data
+        if encryption_type == "RSA":
+            ciphertext = self.encrypt_data_rsa(data, key)
+        elif encryption_type == "AES":
+            ciphertext = self.encrypt_data_aes(data, key)
+        else:
+            print "I have no idea what you're doing :):):):)"
+        
+        return ciphertext
     
     def encrypt_data_rsa(self, data, key):
-        pass
+        from Crypto.PublicKey import RSA
+        
+        encryptor = RSA.importKey(key)
+        #TODO: finish me
     
     def encrypt_data_aes(self, data, key):
         pass
