@@ -7,10 +7,10 @@ Created on Apr 4, 2012
 '''
 
 import subprocess
-from daemon import Client
+import daemon as DAE
 
 file_dict = None
-daemon = Client()
+daemon = DAE.Client()
     
 def add_file():
     '''
@@ -39,8 +39,11 @@ def delete_file():
     '''
     
     #TODO: implement lookup
-    file_uuid = None
-    sha1_hash = None
+    file_uuid = raw_input("Enter the file's UUID to be deleted > ").strip()
+    print
+    sha1_hash = raw_input("Enter the SHA1 hash of the file > ").strip()
+    print
+    print
     
     daemon.delete_file(file_uuid, sha1_hash)
 
@@ -84,8 +87,26 @@ def list_files():
     Display list of files which this user
     has access to
     '''
-    file_dict = daemon.list_files()
-    print file_dict
+    files = daemon.list_files()
+    if files == None or len(files) <= 0:
+        print
+        print "You have no access to any files in the system.".center(80)
+        print "Try uploading some first.".center(80)
+        print
+        return
+    
+    # Header: 
+    print " %s  %s  %s  %s  %s" % ("File Name".center(15, '.'),
+                                    "File ID".center(38, '.'),
+                                    "RWO",
+                                    "Bytes".center(7, '.'),
+                                    "SHA1".center(8, '.'))
+    
+    for f in files:
+        print " %s  %s  %d%d%d  %6d\n%s" % \
+            (f['file_name'].center(15), f['file_id'].center(38), int(f['read']),
+             int(f['write']), int(f['owner']), f['size'], f['sha1'].rjust(80))
+    print 
 
 
 def version_downloaded():
@@ -128,7 +149,7 @@ def main():
     while True:
         print_main_menu()
         try:
-            resp = raw_input(" > ")
+            resp = raw_input(" > ").strip()
         except (EOFError, KeyboardInterrupt):
             break
         print
@@ -155,6 +176,10 @@ def main():
             request_file()
         elif resp == '666':
             subprocess.call('sl')
+        elif resp == '0':
+            # Switch on/off Debugging
+            DAE.VERBOSE = not DAE.VERBOSE
+            DAE.DEBUG = not DAE.DEBUG
             
     print
 

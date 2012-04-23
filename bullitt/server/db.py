@@ -76,12 +76,12 @@ class ServerBiz(object):
         self.db = BullittSQL()
     
     
-    def add_client(self, client_id, ipaddr, pub_key):
+    def add_client(self, client_id, ipaddr, pub_key, alias=None):
         '''
         
         Add a client to the system with the given ID, IP address, and pub key.
         '''
-        self.db.insert_user(client_id, pub_key, ipaddr)
+        self.db.insert_user(client_id, pub_key, ipaddr, alias)
     
     
     def get_clients(self):
@@ -146,7 +146,7 @@ class ServerBiz(object):
         
         If a client_id is specified, return if the file's owner is that client.
         '''
-        ret = self.db.select_file(file_id, 'owner_id')
+        ret = self.db.select_file(file_id)
         if not ret: return None
         
         owner_id = ret['owner_id']
@@ -167,8 +167,8 @@ class ServerBiz(object):
         # of users with a permission on it.
         peers = self.db.select_file_peers(file_id, sha1, get_pub_key)
         try:
-            peers.pop(client_id)
-        except KeyError:
+            peers.remove(client_id)
+        except ValueError:
             return
         if get_file_size:
             return peers, self.db.select_file(file_id, 'size')['size']
@@ -179,7 +179,10 @@ class ServerBiz(object):
         '''
         Return the current SHA1 hash of the file.
         '''
-        return self.db.select_file(file_id, 'sha1')['sha1']
+        try:
+            return self.db.select_file(file_id)['sha1']
+        except TypeError:
+            return
     
     
     def get_client_files(self, client_id):
@@ -353,7 +356,8 @@ class BullittSQL(object):
                                 Column('user_id', String(36), primary_key=True,
                                        nullable=False),
                                 Column('pub_key', PickleType, nullable=False),
-                                Column('ipaddr', String(15), nullable=False))
+                                Column('ipaddr', String(15), nullable=False),
+                                Column('alias', String(5), nullable=True))
         self.file_table = Table('file_list', self.metadata,
                                 Column('file_id', String(36), primary_key=True,
                                        nullable=False),
@@ -395,13 +399,14 @@ class BullittSQL(object):
         self.metadata.create_all()
     
     
-    def insert_user(self, client_id, pub_key, ipaddr):
+    def insert_user(self, client_id, pub_key, ipaddr, alias=None):
         '''
         Insert the fields for a new client.
         '''
         uvals = dict(user_id=client_id,
                      pub_key=pub_key,
-                     ipaddr=ipaddr)
+                     ipaddr=ipaddr,
+                     alias=alias)
         return self.user_table.insert().execute(**uvals)
     
     
@@ -549,11 +554,12 @@ class BullittSQL(object):
         if field == None:
             field = [self.file_table]
         else:
-            field = [self.file_table.c.__dict__[field]]
+            field = [getattr(self.file_table.c, field)]
         s = select(field, self.file_table.c.file_id == file_id)
         result = self.conn.execute(s)
         row = result.fetchone()
         result.close()
+        if row == None: return
         keys = tuple([col.name for col in tuple(self.file_table.columns)])
         return dict(zip(keys, row))
     

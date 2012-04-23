@@ -70,11 +70,11 @@ class Server(object):
         self.listener.start()
     
     
-    def add_client(self, client_id, ipaddr, pub_key):
+    def add_client(self, client_id, ipaddr, pub_key, alias=None):
         '''
         Add a client to the system with the given ID, IP address, and pub key.
         '''
-        self.biz.add_client(client_id, ipaddr, pub_key)
+        self.biz.add_client(client_id, ipaddr, pub_key, alias)
     
     
     def get_clients(self):
@@ -126,7 +126,7 @@ class _Listener(cuffrabbit.RabbitObj, threading.Thread):
         # Operation parameters
         self.ops = dict(add_file=('id', 'name', 'bytes', 'sha1'),
                         client_lookup=(), # Do param verification differently
-                        del_file=('id', 'name', 'sha1'),
+                        del_file=('id', 'sha1'),
                         get_peers=('id',),
                         grant=('id', 'client', 'read', 'write'),
                         list_files=(), # No parameters needed
@@ -171,15 +171,26 @@ class _Listener(cuffrabbit.RabbitObj, threading.Thread):
         # Parse message
         job_data = json.loads(body)
         
+        err = []
         # Ensure the client is valid and the message is well-formed
-        if not self.biz.client_exists(client_id) \
-               or not job_data.has_key('msg_type') \
-               or not job_data.has_key('params') \
-               or not job_data['msg_type'] in self.ops \
-               or not self._check_param_keys(job_data['params'],
-                                             job_data['msg_type']):
+        if not self.biz.client_exists(client_id):
+            err.append('Invalid client ID')
+        if not job_data.has_key('msg_type'):
+            err.append('Invalid message type')
+        if not job_data.has_key('params'):
+            err.append('No parameters given')
+        if not job_data['msg_type'] in self.ops:
+            err.append('Invalid action type')
+        if not self._check_param_keys(job_data['params'], job_data['msg_type']):
+            err.append('Invalid params for action type specified')
+        
+        if len(err):
             #not necessary for this version... TODO Do something? At least reject the message...
             self.ack(method.delivery_tag) # Oh well... we'll just acknowledge it
+            if VERBOSE:
+                for e in err:
+                    print "%s%s" % ((' ' * 7), e)
+                print "%sIgnoring message..." % (' ' * 7)
             return
         
         action = job_data['msg_type']
@@ -207,7 +218,9 @@ class _Listener(cuffrabbit.RabbitObj, threading.Thread):
         Make sure the client's message has all necessary information.
         '''
         for k in self.ops[action]:
-            if k not in params or params[k].strip() == '' or params[k] == None:
+            if k not in params or (type(params[k]) == str and \
+                                   params[k].strip() == '') \
+                    or params[k] == None:
                 # Ignore the request
                 return False
         return True
@@ -226,7 +239,7 @@ class _Listener(cuffrabbit.RabbitObj, threading.Thread):
         '''
         Delete a file if client owns it, then notify its peers of the deletion.
         '''
-        file_id = params['file_id']
+        file_id = params['id']
         sha1 = params['sha1']
         if  sha1 != self.biz.get_file_version(file_id):
             #not necessary for this version... TODO ? Notify client that delete failed because the specified version is out of date

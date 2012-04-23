@@ -21,8 +21,9 @@ import uuid #use str(uuid.uuid4())
 
 # Third-party libraries
 import Crypto
-import pika
-
+from Crypto.PublicKey import RSA
+from Crypto.Cipher import AES
+from Crypto import Random
 from pika.credentials import PlainCredentials
 
 # Local imports
@@ -46,7 +47,7 @@ class Client():
         client_dir = os.path.dirname(os.path.realpath(__file__))
         #TODO: return this line to normal
         #with open(os.path.join('/home/vlab/keypair', 'client.json')) as fin:
-        with open(os.path.join('./setup', 'client1.json')) as fin:
+        with open(os.path.join(client_dir, 'setup', 'client1.json')) as fin:
             cconfig = json.load(fin)
             self.uuid = cconfig['uuid']
             self.ipaddr = cconfig['ip']
@@ -62,7 +63,7 @@ class Client():
         exchange = json_data['server_exchange']
         
         # Keep session keys in this
-        self.session_keys = dict(server='')
+        self.session_keys = dict(server='server')
         self.public_keys = dict()
         
         # Use this for long-term storage of file info.
@@ -140,6 +141,7 @@ class Client():
         except OSError:
             print "File not found or other OSError"
     
+    
     def reassemble_slices(self, slice_list, outfilename):
         '''
         Decrypt slices and put them back together
@@ -150,13 +152,20 @@ class Client():
     
         outhandle.close()
 
+
     def send_new_key(self, client_id, encrypted_aes_key):
         self.send_op_msg('new_key', client=client_id, key=encrypted_aes_key)
+
 
     def encrypt_data(self, data, client_id):
         '''
         Encrypt some data using a given key
         '''
+        # Don't encrypt if server is destination
+        if client_id == 'server':
+            if DEBUG: print "Sending message to server. Encryption skipped..."
+            return data
+        
         try: #AES
             
             key = self.session_keys[client_id]
@@ -173,45 +182,37 @@ class Client():
         
         return ciphertext
     
+    
     def encrypt_data_rsa(self, data, key):
-        from Crypto.PublicKey import RSA
-        
         encryptor = RSA.importKey(key)
-
         ciphertext = encryptor.encrypt(data, 0)
-
         return ciphertext
+    
     
     def encrypt_data_aes(self, data, key):
-        from Crypto.Cipher import AES
-        
         encryptor = AES.new(key)
-          
         data = self.pad_aes_data(data)
-              
         ciphertext = encryptor.encrypt(data)
-        
         return ciphertext
     
-    def pad_aes_data(self,data):
+    
+    def pad_aes_data(self, data):
         '''
         add padding so the block size is proper
         '''
         pad_count = AES_BLOCK_SIZE - (len(data) % AES_BLOCK_SIZE)
-        
         pad = PAD_CHAR * pad_count
-        
         padded = data + pad
-        
         return padded
+    
     
     def unpad_json_aes_data(self, data):
         '''
         remove any padding after the final } in a json message
         '''
         end_msg = data.rfind(END_JSON_CHAR) + 1
-    
         return data[0:end_msg]
+    
     
     def decrypt_data(self, data, other_party):
         '''
@@ -221,6 +222,9 @@ class Client():
         #This may be changed to decrypt the entire JSON message instead
         #In which case this will be called from the receive method
         #instead of the reassembly 
+        
+        # We don't need to decrypt if it's coming from the server
+        if other_party == 'server': return data
 
         try:
             key = self.session_keys[other_party]
@@ -230,31 +234,27 @@ class Client():
             #TODO: finish this logic
             # need to dump the json and retrieve the key from there
             self.session_keys[other_party] = decrypted
-        
+    
+    
     def decrypt_data_rsa(self, data):
-        from Crypto.PublicKey import RSA
-        
         decryptor = RSA.importKey(self.pri_key)
         plaintext = decryptor.decrypt(data)
         
         return plaintext
     
+    
     def decrypt_data_aes(self, data, key):
-        from Crypto.Cipher import AES
-        
         decryptor = AES.new(key)
-        
         plaintext = decryptor.decrypt(data)
-        
         plaintext = self.unpad_json_aes_data(plaintext)
         
         return plaintext
+    
 
     def create_session_key(self, other_party):
         '''
         Create a session key
-        '''       
-        from Crypto import Random
+        '''
         
         #grab the RNG
         rnd = Random.OSRNG.posix.new()
@@ -262,6 +262,7 @@ class Client():
         key = rnd.read(SESSION_KEY_LENGTH)
         #store it in the list
         self.session_keys[other_party] = key
+    
     
     def send_slice(self, slice, file_uuid, slice_num):
         '''
@@ -333,6 +334,7 @@ class Client():
             if params[key] is None: to_pop.append(key)
         for key in to_pop: 
             params.pop(key)
+        params.pop('to_pop')
         body = self.encrypt_data(json.dumps(dict(msg_type=msg_type,
                                                  params=params)),
                                  self.session_keys['server'])
@@ -368,6 +370,7 @@ class Client():
     
     
     def get_peers(self, file_uuid):
+        #TODO: Needs wrapping
         self.send_op_msg('get_peers', id=file_uuid)
     
     
@@ -388,6 +391,7 @@ class Client():
     
     
     def query_rights(self, file_uuid):
+        #TODO: Needs wrapping
         '''
         Query rights of other users on a file
         '''
@@ -398,8 +402,8 @@ class Client():
         '''
         Query for a list of files user has access to and return it.
         '''
+        self.send_op_msg('list_files')
         while True:
-            self.send_op_msg('list_files')
             try:
                 props, action, params = self.get_op_resp()
             except Queue.Empty:
@@ -421,10 +425,10 @@ class Client():
     
     def request_file(self, file_uuid, sha1_hash, bytes):     
         
-        session_id = uuid.uuid4()
+        #session_id = uuid.uuid4()
          
-        self.send_op_msg('request_file', id=str(file_uuid), sha1=sha1_hash, \
-                         correlation_id=session_id)
+        self.send_op_msg('request_file', id=str(file_uuid), sha1=sha1_hash)#, \
+        #                 correlation_id=session_id)
         
         self.requested_file_slice_count[file_uuid] = int(
                             math.ceil(bytes / float(client.CONST_SLICE_SIZE)))
@@ -489,18 +493,18 @@ class _Sender(cuffrabbit.RabbitObj, threading.Thread):
         while True:
             if VERBOSE: print " :) Ready to send messages"
             queue, msg, correlation_id = self.output_queue.get()
+            msg = str(msg)
             if DEBUG: 
-                print "Sending message to '%s' the following:\n%r" % (queue,
-                                                                      msg)
-            self.send_message(msg, routing_key=queue,
-                              correlation_id=correlation_id)
+                print "Sending message to '%s' with corr ID '%s' the " \
+                      "following:\n%r" % (queue, correlation_id, msg)
+            self.send_message(msg, routing_key=queue)
+            #                  correlation_id=correlation_id)
                                                              
             # Signal the queue that the message has been sent
             self.output_queue.task_done()
 
 
 
-#TODO: implement receive
 class _Receiver(cuffrabbit.RabbitObj, threading.Thread):
     '''
     Receiver based on Mike's code
@@ -571,18 +575,18 @@ class _Receiver(cuffrabbit.RabbitObj, threading.Thread):
             
             json_object = None #decrypt the message here
             
-            id = json_object['id']
+            ID = json_object['id']
             num = json_object['num']
-            slice = base64.b64decode(json_object['slice'])
+            fslice = base64.b64decode(json_object['slice'])
             
-            self.parent.received_in_progress[id] = list()
-            handle = self.parent.received_in_progress[id]
-            handle[num] = slice
+            self.parent.received_in_progress[ID] = list()
+            handle = self.parent.received_in_progress[ID]
+            handle[num] = fslice
             
             if len(handle) == self.parent.requested_file_slice_count:
-                #TODO: fix the id in the next line - should be filename
-                self.parent.reassemble_slices(handle, id)
-                del self.parent.received_in_progress[id]
+                #TODO: fix the ID in the next line - should be filename
+                self.parent.reassemble_slices(handle, ID)
+                del self.parent.received_in_progress[ID]
         else:
             self.op_resp_queue.put((props, action, params))
         

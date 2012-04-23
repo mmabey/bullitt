@@ -26,14 +26,16 @@ def view_clients():
         print
         return False
     
-    print '\n ', "Client UUID".center(36, '.'), '', "IP".center(15, '.'),
-    print '', "Key".center(7, '.')
+    print '\n ', "Alias".center(9, '.'), '', "Client UUID".center(38, '.'),
+    print  '', "IP".center(15, '.'), '', "Key".center(7, '.') 
     
     for c in clients:
-        print '  %s  %s  %s' % (c['user_id'].center(36),
-                                c['ipaddr'].center(15),
-                                len(c['pub_key']) == 272 and "Yes".center(7) \
-                                    or "No".center(7))
+        print '  %s  %s  %s  %s' % (c['alias'].center(9),
+                                    c['user_id'].center(38),
+                                    c['ipaddr'].center(15),
+                                    len(c['pub_key']) == 272 and \
+                                    "Yes".center(7) or "No".center(7),
+                                    )
     return True
 
 
@@ -42,6 +44,7 @@ def add_client():
     _uid = ''
     _ipaddr = ''
     _key = ''
+    _alias = ''
     while err != []:
         if err:
             print '\n\n'
@@ -50,10 +53,20 @@ def add_client():
             print '\n\n'
         
         err = []
-        uid = raw_input("Enter the client's UUID %s> " % _uid).strip()
-        ipaddr = raw_input("\nEnter the client's IP address %s> " % _ipaddr).strip()
-        key = raw_input("\nEnter the path to the client's public key %s> " % _key).strip()
+        alias = raw_input("Enter the client's alias %s> " % _alias).strip()
+        uid = raw_input("\nEnter the client's UUID %s> " % _uid).strip()
+        ipaddr = raw_input("\nEnter the client's IP address %s> " \
+                           % _ipaddr).strip()
+        key = raw_input("\nEnter the path to the client's public key %s> " \
+                        % _key).strip()
         
+        # Check if alias is in the proper format (number)
+        if len(alias) and alias.isdigit(): _alias = alias
+        else:
+            err.append('Client alias should be a number.')
+            _alias = ''
+        
+        # Check if UUID is in the proper format
         if len(uid) != 36 or (uid[8], uid[13], uid[18], uid[23]) != \
                 ('-', '-', '-', '-') or not uid.replace('-', '').isalnum():
             if len(uid) == 0 and len(_uid):
@@ -63,6 +76,7 @@ def add_client():
                 _uid = ''
         else: _uid = uid
         
+        # Check if IP address is in the proper format
         if 15 < len(ipaddr) < 7 or ipaddr.count('.') != 3 or \
                 not ipaddr.replace('.', '').isdigit():
             if len(ipaddr) == 0 and len(_ipaddr):
@@ -72,6 +86,7 @@ def add_client():
                 _ipaddr = ''
         else: _ipaddr = ipaddr
         
+        # Check if public key path is a file we can open
         try:
             if len(key) == 0 and len(_key):
                 key = _key
@@ -84,7 +99,7 @@ def add_client():
             _key = key
         
     print "\nAdding client with IP: %s" % ipaddr
-    SERVER.add_client(uid, ipaddr, key)
+    SERVER.add_client(uid, ipaddr, key, alias)
     print "Done.\n"
 
 

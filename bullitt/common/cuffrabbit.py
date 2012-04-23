@@ -201,9 +201,7 @@ class RabbitObj(object):
         # TODO: In the following, create a means of catching "unroutable" messages (necessary because the 'mandatory'
         # flag is set)
         props = pika.BasicProperties(delivery_mode=2, # Persistent messages
-                                     user_id=self.user_id,
-                                     correlation_id=correlation_id
-                                     )
+                                     user_id=str(self.user_id))
         if DEBUG: 
             print "[x] Sending message to %s" % (routing_key)
         self.channel.basic_publish(exchange=self.exchange,
