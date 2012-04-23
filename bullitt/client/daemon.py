@@ -398,6 +398,27 @@ class Client():
                          read=read, write=write)
     
     
+    def client_lookup(self):
+        '''
+        Get list of all clients
+        '''
+        self.send_op_msg('client_lookup')
+        while True:
+            try:
+                props, action, params = self.get_op_resp()
+            except Queue.Empty:
+                print "Unable to retrieve message. Response timed out."
+                break
+            #TODO: Do something with the returned result before returning?
+            if action == 'client_list':
+                return params['clients']
+            # This is not the action you are looking for. Move along.
+            if DEBUG:
+                print "Potentially entering (or already in) infinite loop... " \
+                      "Can't stop..."
+            self.oops((props, action, params))
+    
+    
     def query_rights(self, file_uuid):
         #TODO: Needs wrapping
         '''

@@ -67,20 +67,38 @@ def get_peers():
     
   
 def client_lookup():
-    print daemon.client_lookup()  
+    clients = daemon.client_lookup()
+    if clients == None:
+        print
+        print "There are no other clients in the system."
+        print
+        return False
+    print "Clients in the System".center(38, '.')
+    for c in clients:
+        print c
 
 
 def grant_rights():
     '''
     grant a user rights on a file
     '''
-    client_lookup()    
+    if not client_lookup(): return
+    file_uuid = raw_input("File UUID > ").strip()
+    client_uuid = raw_input("Client being granted > ").strip()
+    read = int(raw_input("Grant READ right? (0/1) > ").strip())
+    write = int(raw_input("Grant WRITE right? (0/1) > ").strip())
+    daemon.grant_rights(file_uuid, client_uuid, read, write)
 
 
 def revoke_rights():
     '''
     revoke rights on a file
     '''
+    file_uuid = raw_input("File UUID > ").strip()
+    client_uuid = raw_input("Client being revoked > ").strip()
+    read = int(raw_input("Revoke READ right? (0/1) > ").strip())
+    write = int(raw_input("Revoke WRITE right? (0/1) > ").strip())
+    daemon.revoke_rights(file_uuid, client_uuid, read, write)
 
 
 def query_rights():
@@ -92,6 +110,7 @@ def query_rights():
     #TODO: implement lookup
     #file_uuid = None
     
+    print "You have the following permissions:"
     print daemon.query_rights(file_id)
 
 
