@@ -151,7 +151,6 @@ class Client():
         '''
         Encrypt some data using a given key
         '''
-        #TODO: write me
         if encryption_type == "RSA":
             ciphertext = self.encrypt_data_rsa(data, key)
         elif encryption_type == "AES":
@@ -166,9 +165,19 @@ class Client():
         
         encryptor = RSA.importKey(key)
         #TODO: finish me
+
+        ciphertext = encryptor.encrypt(data)
+
+        return ciphertext
     
     def encrypt_data_aes(self, data, key):
-        pass
+        from Crypto.Cipher import AES
+        
+        encryptor = AES.new(key)
+        
+        ciphertext = encryptor.encrypt(data)
+        
+        return ciphertext
     
     def decrypt_data(self, data, other_party):
         '''
@@ -181,7 +190,7 @@ class Client():
 
         try:
             key = self.session_keys[other_party]
-            return self.decrypt_data_aes(key)
+            return self.decrypt_data_aes(data, key)
         except KeyError:
             decrypted = self.decrypt_data_rsa(data)
             #TODO: finish this logic - right now any time a private key
@@ -189,11 +198,21 @@ class Client():
             self.create_session_key(other_party)
             key = self.session_keys[other_party]
         
-    def decrypt_data_aes(self, data, key):
-        pass
-    
     def decrypt_data_rsa(self, data):
-        pass
+        from Crypto.PublicKey import RSA
+        
+        decryptor = RSA.importKey(self.pri_key)
+        plaintext = decryptor.decrypt(data)
+        
+        return plaintext
+    
+    def decrypt_data_aes(self, data, key):
+        from Crypto.Cipher import AES
+        
+        decryptor = AES.new(key)
+        plaintext = decryptor.decrypt(data)
+        
+        return plaintext
 
     def create_session_key(self, other_party):
         '''
