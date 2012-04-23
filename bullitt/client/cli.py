@@ -121,12 +121,10 @@ def request_file():
     '''
     
     file_id = raw_input("Enter id from list_files: ")
+    sha1_hash = raw_input("Enter sha1 hash from list_files: ")
+    bytes = raw_input("Enter the number of bytes needed: ")
     
-    #TODO: lookup file uuid, sha1, and bytes
-    file_uuid = None
-    sha1_hash = None
-    bytes = None
-    daemon.request_file(file_uuid, sha1_hash, bytes)
+    daemon.request_file(file_id, sha1_hash, bytes)
     
 
 def print_main_menu():
