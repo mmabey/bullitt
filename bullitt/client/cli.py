@@ -23,14 +23,23 @@ def mod_file():
     '''
     Notify index server of change to file
     '''
-    file_id = raw_input("Enter file id from listfiles: ")
+    file_id = raw_input("Enter file id from listfiles > ").strip()
     
     #TODO: implement lookups
+    files = daemon.list_files()
     filename = None
     prev_sha1 = None
-    file_uuid = None
+    for f in files:
+        if f['file_id'] == file_id:
+            filename = f['file_name']
+            prev_sha1 = f['sha1']
+    if filename == None:
+        print
+        print "Invalid file UUID. Please try again.".center(80)
+        print
+        return
     
-    daemon.add_or_mod_file(filename, prev_sha1, file_uuid)
+    daemon.add_or_mod_file(filename, prev_sha1, file_id)
     
     
 def delete_file():

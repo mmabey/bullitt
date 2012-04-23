@@ -115,7 +115,10 @@ class ServerBiz(object):
         '''
         Return if the file is already in the system.
         '''
-        return bool(self.db.select_file(file_id, 'file_id'))
+        try:
+            return bool(self.db.select_file(file_id)['file_id'])
+        except TypeError:
+            return False
     
     
     def perm_exists(self, file_id, client_id):
@@ -171,7 +174,7 @@ class ServerBiz(object):
         except ValueError:
             return
         if get_file_size:
-            return peers, self.db.select_file(file_id, 'size')['size']
+            return peers, self.db.select_file(file_id)['size']
         return peers
     
     
@@ -447,6 +450,7 @@ class BullittSQL(object):
         result = self.conn.execute(select(field, where))
         row = result.fetchone()
         result.close()
+        if row == None: return None
         keys = tuple([col.name for col in tuple(self.user_table.columns)])
         return dict(zip(keys, row))
     
@@ -612,7 +616,7 @@ class BullittSQL(object):
             sha1 = sha1.hexdigest()
         except AttributeError:
             pass
-        prev_sha1 = self.select_file(file_id, 'sha1')['sha1']
+        prev_sha1 = self.select_file(file_id)['sha1']
         fvals = dict(sha1=sha1, prev_sha1=prev_sha1, size=size)
         ret1 = self.file_table.update(self.file_table.c.file_id == str(file_id))
         return ret1.execute(**fvals)
