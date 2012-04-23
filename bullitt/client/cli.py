@@ -77,9 +77,9 @@ def query_rights():
     file_id = raw_input("Enter file id: ")
     
     #TODO: implement lookup
-    file_uuid = None
+    #file_uuid = None
     
-    daemon.query_rights(file_uuid)
+    print daemon.query_rights(file_id)
 
 
 def list_files():
