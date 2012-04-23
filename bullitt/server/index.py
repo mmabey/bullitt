@@ -316,6 +316,7 @@ class _Listener(cuffrabbit.RabbitObj, threading.Thread):
                                         get_pub_key=False, get_file_size=True)
         body = dict(msg_type='slice_assign',
                     params=dict(file_id=file_id,
+                                client_id=client_id,
                                 sha1=sha1))
         num_slices = int(ceil(float(size) / self.slice_size))
         slices_per = int(ceil(float(num_slices) / len(peers)))

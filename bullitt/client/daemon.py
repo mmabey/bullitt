@@ -31,7 +31,10 @@ from bullitt.common import cuffrabbit
 # Constants/Globals
 DEBUG = False
 VERBOSE = False
-SESSION_KEY_LENGTH = 1024
+SESSION_KEY_LENGTH = 32
+AES_BLOCK_SIZE = 32
+PAD_CHAR = '*'
+END_JSON_CHAR = '}'
 #cuffrabbit.DEBUG = True
 #cuffrabbit.INFO = True
 
@@ -60,6 +63,7 @@ class Client():
         
         # Keep session keys in this
         self.session_keys = dict(server='')
+        self.public_keys = dict()
         
         # Use this for long-term storage of file info.
         # Keep a structure of {file_id: [name, size, sha1]}
@@ -146,17 +150,26 @@ class Client():
     
         outhandle.close()
 
+    def send_new_key(self, client_id, encrypted_aes_key):
+        self.send_op_msg('new_key', client=client_id, key=encrypted_aes_key)
 
-    def encrypt_data(self, data, key, encryption_type="RSA"):
+    def encrypt_data(self, data, client_id):
         '''
         Encrypt some data using a given key
         '''
-        if encryption_type == "RSA":
-            ciphertext = self.encrypt_data_rsa(data, key)
-        elif encryption_type == "AES":
-            ciphertext = self.encrypt_data_aes(data, key)
-        else:
-            print "I have no idea what you're doing :):):):)"
+        try: #AES
+            
+            key = self.session_keys[client_id]
+            ciphertext = self.encrypt_data_aes(data, key)    
+        except KeyError: #RSA
+            #generate session key
+            self.create_session_key(client_id)
+            key_ciphertext = self.encrypt_data_rsa(self.session_keys[client_id], \
+                                               self.public_keys[client_id])
+            #TODO: send key_ciphertext in a json message
+            #TODO: request rsa pubkey from server if you dont have it
+            ciphertext = self.encrypt_data_aes(data, \
+                                               self.session_keys[client_id])
         
         return ciphertext
     
@@ -164,9 +177,8 @@ class Client():
         from Crypto.PublicKey import RSA
         
         encryptor = RSA.importKey(key)
-        #TODO: finish me
 
-        ciphertext = encryptor.encrypt(data)
+        ciphertext = encryptor.encrypt(data, 0)
 
         return ciphertext
     
@@ -174,14 +186,36 @@ class Client():
         from Crypto.Cipher import AES
         
         encryptor = AES.new(key)
-        
+          
+        data = self.pad_aes_data(data)
+              
         ciphertext = encryptor.encrypt(data)
         
         return ciphertext
     
+    def pad_aes_data(self,data):
+        '''
+        add padding so the block size is proper
+        '''
+        pad_count = AES_BLOCK_SIZE - (len(data) % AES_BLOCK_SIZE)
+        
+        pad = PAD_CHAR * pad_count
+        
+        padded = data + pad
+        
+        return padded
+    
+    def unpad_json_aes_data(self, data):
+        '''
+        remove any padding after the final } in a json message
+        '''
+        end_msg = data.rfind(END_JSON_CHAR) + 1
+    
+        return data[0:end_msg]
+    
     def decrypt_data(self, data, other_party):
         '''
-        Decrypt slice with private key
+        Decrypt slice
         '''
         #Use session key to decrypt via Crypto
         #This may be changed to decrypt the entire JSON message instead
@@ -191,12 +225,11 @@ class Client():
         try:
             key = self.session_keys[other_party]
             return self.decrypt_data_aes(data, key)
-        except KeyError:
+        except KeyError: #save the session key
             decrypted = self.decrypt_data_rsa(data)
-            #TODO: finish this logic - right now any time a private key
-            #gets made it will create a new session key - that's wrong
-            self.create_session_key(other_party)
-            key = self.session_keys[other_party]
+            #TODO: finish this logic
+            # need to dump the json and retrieve the key from there
+            self.session_keys[other_party] = decrypted
         
     def decrypt_data_rsa(self, data):
         from Crypto.PublicKey import RSA
@@ -210,7 +243,10 @@ class Client():
         from Crypto.Cipher import AES
         
         decryptor = AES.new(key)
+        
         plaintext = decryptor.decrypt(data)
+        
+        plaintext = self.unpad_json_aes_data(plaintext)
         
         return plaintext
 
@@ -281,6 +317,7 @@ class Client():
         write = True/False/None write permission
         session_uuid = uuid used for identifying session keys
         key = session key
+        correlation_id = who a a session is with
         '''
         to_pop = []
         params = locals()
@@ -559,7 +596,16 @@ if __name__ == '__main__':
     '''
     client = Client()
     
-    client.create_session_key("Bob")
+    client.public_keys["bob"] = client.pub_key
+    
+    ciphert = client.encrypt_data("a", "bob")
+    
+    plain = client.decrypt_data(ciphert, "bob")
+    
+    print plain
+    
+    print json.dumps(plain)
+    
     #client.add_or_mod_file("C:/Users/Justin/Desktop/trying/Paper-5(1).pdf")
     
     #num_slices = int(math.ceil(os.path.getsize("C:/Users/Justin/Desktop/trying/Paper-5(1).pdf") / float(client.CONST_SLICE_SIZE)))
