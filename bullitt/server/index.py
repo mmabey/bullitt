@@ -51,6 +51,7 @@ class Server(object):
         p = os.path.dirname(os.path.realpath(__file__))
         with open(os.path.join(p, 'server_config.json')) as fin:
             config = json.load(fin)
+        config  # Shut up the stupid eclipse warning
         p = os.path.realpath(os.path.join(p, '..', 'common'))
         with open(os.path.join(p, 'gen_config.json')) as fin:
             genconfig = json.load(fin)
@@ -177,8 +178,8 @@ class _Listener(cuffrabbit.RabbitObj, threading.Thread):
                or not job_data['msg_type'] in self.ops \
                or not self._check_param_keys(job_data['params'],
                                              job_data['msg_type']):
-            #TODO: Do something? At least reject the message...
-            self.ack(method.delivery_tag)
+            #not necessary for this version... TODO Do something? At least reject the message...
+            self.ack(method.delivery_tag) # Oh well... we'll just acknowledge it
             return
         
         action = job_data['msg_type']
@@ -228,12 +229,17 @@ class _Listener(cuffrabbit.RabbitObj, threading.Thread):
         file_id = params['file_id']
         sha1 = params['sha1']
         if  sha1 != self.biz.get_file_version(file_id):
-            #TODO: Notify client that delete failed because the specified version is out of date
-            pass
+            #not necessary for this version... TODO ? Notify client that delete failed because the specified version is out of date
+            return
+        elif not self.biz.del_file(params, client_id):
+            #not necessary for this version... TODO ? Notify client that delete failed for some other reason
+            return
+        
+        # Notify peers to delete the file
         peers = self.biz.get_file_peers(file_id, client_id, 'all',
                                         get_pub_key=False)
         if peers:
-            self.biz.del_file(params, client_id)
+            # Only bother to create the message if there are peers on the file
             body = dict(msg_type="file_deleted",
                         params=dict(file_id=file_id, sha1=sha1))
             for p in peers:
@@ -268,9 +274,26 @@ class _Listener(cuffrabbit.RabbitObj, threading.Thread):
         '''
         '''
         ret = self.biz.mod_file(params, client_id)
-        body = dict(msg_type='file_modded',
-                    params=dict(ret_val=ret))
-        self.send_message(body=json.dumps(body), routing_key=client_id)
+        if not bool(ret):
+            # Modification failed. Don't do anything else.
+            #TODO: Make sure the above is correct
+            return
+        
+        file_id = params['id']
+        sha1 = params['sha1']
+        
+        # Notify peers to get the updated version
+        peers = self.biz.get_file_peers(file_id, client_id, 'all',
+                                        get_pub_key=False)
+        if peers:
+            # Only bother to create the message if there are peers on the file
+            body = dict(msg_type="file_deleted",
+                        params=dict(file_id=file_id, sha1=sha1))
+            for p in peers:
+                body = dict(msg_type='file_modded',
+                            params=dict(ret_val=ret))
+                #TODO: Make sure the above complies with message structure
+                self.send_message(body=json.dumps(body), routing_key=p)
     
     
     def _query_rights(self, params, client_id):
@@ -305,6 +328,7 @@ class _Listener(cuffrabbit.RabbitObj, threading.Thread):
                                   routing_key=p['user_id'])
                 slices_sent += 1
                 if slices_sent >= num_slices: break
+                n # Shut up the stupid eclipse warning
 
 
 

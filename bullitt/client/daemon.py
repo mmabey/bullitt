@@ -282,11 +282,13 @@ class Client():
         session_uuid = uuid used for identifying session keys
         key = session key
         '''
-        params = locals()
-        params.pop('msg_type')
-        params.pop('self')
-        params.pop('correlation_id') #TODO: added correlation_id
         to_pop = []
+        params = locals()
+        
+        # Parameters not inserted into the message body under "params"
+        params.pop('self') # Don't need to send a reference to ourselves
+        params.pop('msg_type') # Added separately to body
+        params.pop('correlation_id') # Added to parameters, not the msg body
         
         # Remove any unnecessary keys (None value)
         for key in params:
@@ -442,14 +444,19 @@ class _Sender(cuffrabbit.RabbitObj, threading.Thread):
     
     
     def start_sending(self, stupid):
+        '''
+        Wait for a message to be put in the output queue and send it.
+        
+        The parameter "stupid" is only required for pika to not complain.
+        '''
         while True:
             if VERBOSE: print " :) Ready to send messages"
             queue, msg, correlation_id = self.output_queue.get()
             if DEBUG: 
                 print "Sending message to '%s' the following:\n%r" % (queue,
                                                                       msg)
-            self.send_message(msg, routing_key=queue, \
-                              correlation_id=self.correlation_id)
+            self.send_message(msg, routing_key=queue,
+                              correlation_id=correlation_id)
                                                              
             # Signal the queue that the message has been sent
             self.output_queue.task_done()
