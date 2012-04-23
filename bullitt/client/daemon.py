@@ -396,7 +396,20 @@ class Client():
         Query rights of other users on a file
         '''
         self.send_op_msg('query_rights', id=str(file_uuid))
-    
+        while True:
+            try:
+                props, action, params = self.get_op_resp()
+            except Queue.Empty:
+                print "Unable to retrieve message. Response timed out."
+                break
+            #TODO: Do something with the returned result before returning?
+            if action == 'rights_list':
+                return params['rights']
+            # This is not the action you are looking for. Move along.
+            if DEBUG:
+                print "Potentially entering (or already in) infinite loop... " \
+                      "Can't stop..."
+            self.oops((props, action, params))
     
     def list_files(self):
         '''
