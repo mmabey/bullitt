@@ -52,6 +52,19 @@ def get_peers():
     '''
     Shows all the other client vms in the system w/ access to a file
     '''
+    file_uuid = raw_input("Enter the file UUID to get its peers > ").strip()
+    peers = daemon.get_peers(file_uuid)
+    if peers == None:
+        print
+        print "No peers listed. Either you have no rights on the".center(80)
+        print "file, or it hasn't been shared with any clients.".center(80)
+        print
+        return
+    
+    print "Peers".center(38)
+    for p in peers:
+        print p
+    
   
 def client_lookup():
     print daemon.client_lookup()  

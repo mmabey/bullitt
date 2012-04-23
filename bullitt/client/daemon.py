@@ -370,8 +370,16 @@ class Client():
     
     
     def get_peers(self, file_uuid):
-        #TODO: Needs wrapping
         self.send_op_msg('get_peers', id=file_uuid)
+        while True:
+            try:
+                props, action, params = self.get_op_resp()
+            except Queue.Empty:
+                print "Unable to retrieve message. Response timed out."
+                break
+            if action == "peers_list":
+                return params['peers']
+            self.oops((props, action, params))
     
     
     def grant_rights(self, file_uuid, client_uuid, read, write):
