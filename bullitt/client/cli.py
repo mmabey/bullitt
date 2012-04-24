@@ -84,7 +84,8 @@ def client_lookup():
         return False
     print "Clients in the System".center(38, '.')
     for c in clients:
-        print c
+        print c['user_id'], c['ipaddr']
+    return True
 
 
 def grant_rights():
@@ -92,11 +93,15 @@ def grant_rights():
     grant a user rights on a file
     '''
     if not client_lookup(): return
-    file_uuid = raw_input("File UUID > ").strip()
-    client_uuid = raw_input("Client being granted > ").strip()
-    read = int(raw_input("Grant READ right? (0/1) > ").strip())
-    write = int(raw_input("Grant WRITE right? (0/1) > ").strip())
-    daemon.grant_rights(file_uuid, client_uuid, read, write)
+    try:
+        file_uuid = raw_input("File UUID > ").strip()
+        client_uuid = raw_input("Client being granted > ").strip()
+        read = int(raw_input("Grant READ right? (0/1) > ").strip())
+        write = int(raw_input("Grant WRITE right? (0/1) > ").strip())
+        daemon.grant_rights(file_uuid, client_uuid, read, write)
+    except:
+        print
+        print "Oops. Something bad happened. Please try again.".center(80)
 
 
 def revoke_rights():

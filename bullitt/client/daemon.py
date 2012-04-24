@@ -46,8 +46,8 @@ class Client():
         #read slice size from our config json
         client_dir = os.path.dirname(os.path.realpath(__file__))
         #TODO: return this line to normal
-        #with open(os.path.join('/home/vlab/keypair', 'client.json')) as fin:
-        with open(os.path.join(client_dir, 'setup', 'client1.json')) as fin:
+        with open(os.path.join('/home/vlab/keypair', 'client.json')) as fin:
+        #with open(os.path.join(client_dir, 'setup', 'client1.json')) as fin:
             cconfig = json.load(fin)
             self.uuid = cconfig['uuid']
             self.ipaddr = cconfig['ip']

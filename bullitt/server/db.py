@@ -256,10 +256,10 @@ class ServerBiz(object):
         '''
         file_id = params['id']
         grantee = params['client']
-        read = params['read']
+        read = bool(params['read'])
         if read == False: read = None
         
-        write = params['write']
+        write = bool(params['write'])
         if write == False: write = None
         
         if self.get_file_owner(file_id, client_id) and \
